@@ -175,6 +175,7 @@ main{
 .az-name{font-size:13px;color:var(--txt);word-break:break-all;line-height:1.3}
 .az-fmts{font-size:11px;color:var(--dim)}
 #audInput{display:none}
+#discInput,#bgInput{display:none}
 
 /* ── Metadata column ───────────────────────────── */
 .meta-col{flex:1;display:flex;flex-direction:column;gap:14px;min-width:0}
@@ -334,6 +335,45 @@ main{
 .toast-error  {background:#221616;border:1px solid rgba(255,107,107,.2);color:var(--err)}
 .toast-info   {background:var(--s1);border:1px solid var(--bd);color:var(--txt)}
 
+/* ── Preview ────────────────────────────────────── */
+#previewWrap{
+  margin-top:14px;
+  background:var(--s0);
+  border:1px solid var(--bd);
+  border-radius:var(--rsm);
+  overflow:hidden;
+  position:relative;
+  max-width:100%;
+}
+#previewWrap img{
+  width:100%;height:auto;display:block;
+}
+#previewWrap .ph{
+  aspect-ratio:16/9;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--dim);font-size:13px;flex-direction:column;gap:6px;
+}
+#previewSpin{
+  position:absolute;top:8px;right:8px;
+  font-size:14px;display:none;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Saved Projects ───────────────────────────────── */
+.proj-card{
+  display:flex;align-items:center;gap:14px;
+  padding:14px 22px;
+  border-bottom:1px solid var(--bd);
+  transition:background .12s;
+}
+.proj-card:last-child{border-bottom:none}
+.proj-card:hover{background:rgba(255,255,255,.02)}
+.proj-meta{flex:1;min-width:0}
+.proj-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proj-sub{font-size:12px;color:var(--muted)}
+.proj-actions{display:flex;gap:6px;flex-shrink:0}
+
 /* ── Responsive ─────────────────────────────────── */
 @media(max-width:720px){
   header{padding:24px 20px 18px}
@@ -427,9 +467,23 @@ main{
           <label>Handle (redes sociais)</label>
           <input id="fHandle" placeholder="ex: NESTALGIA">
         </div>
-        <button class="btn btn-gold" id="addBtn" onclick="addToQueue()" style="margin-top:4px;align-self:flex-start">
-          + Adicionar à Fila
-        </button>
+        <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
+          <button class="btn btn-gold" id="addBtn" onclick="addToQueue()">
+            + Adicionar à Fila
+          </button>
+          <button class="btn btn-ghost" id="saveBtn" onclick="saveProject()">
+            💾 Salvar Projeto
+          </button>
+        </div>
+
+        <!-- Live Preview -->
+        <div id="previewWrap">
+          <div class="ph" id="previewPh">
+            <span style="font-size:28px;opacity:.4">🎬</span>
+            <span>Preview aparecerá aqui</span>
+          </div>
+          <span id="previewSpin">⏳</span>
+        </div>
       </div>
 
     </div><!-- /panel-body -->
@@ -491,6 +545,14 @@ main{
     </div>
   </div><!-- /panel -->
 
+  <!-- Saved Projects panel -->
+  <div class="panel" id="projPanel" style="display:none">
+    <div class="queue-head">
+      <span class="queue-title">Projetos Salvos <span class="badge" id="projCount">0</span></span>
+    </div>
+    <div id="projList"></div>
+  </div>
+
   <!-- Queue panel -->
   <div class="panel" id="queuePanel" style="display:none">
     <div class="queue-head">
@@ -520,6 +582,9 @@ let curImg   = null;   // File
 let curAud   = null;   // File
 let curDisc  = null;   // File (optional)
 let curBg    = null;   // File (optional)
+let editingProjectId = null;  // id de projeto em edição
+let _previewTimer = null;
+let _previewCtrl  = null;     // AbortController
 
 /* ── Drop zones setup ──────────────────────────── */
 function setupZone(el, onFile) {
@@ -576,6 +641,7 @@ function setImg(file) {
   cov.appendChild(img);
   const lbl = document.getElementById('cdLabel');
   lbl.textContent = file.name.length > 26 ? file.name.slice(0, 24) + '…' : file.name;
+  schedulePreview();
 }
 
 function setAud(file) {
@@ -600,6 +666,7 @@ function setDisc(file) {
   const lbl = document.getElementById('discLabel');
   lbl.innerHTML = (file.name.length > 26 ? file.name.slice(0,24)+'…' : file.name);
   lbl.style.color = 'var(--gold)';
+  schedulePreview();
 }
 
 function setBg(file) {
@@ -612,7 +679,58 @@ function setBg(file) {
   const lbl = document.getElementById('bgLabel');
   lbl.innerHTML = (file.name.length > 26 ? file.name.slice(0,24)+'…' : file.name);
   lbl.style.color = 'var(--gold)';
+  schedulePreview();
 }
+
+/* ── Live Preview ──────────────────────────────── */
+function schedulePreview() {
+  if (_previewTimer) clearTimeout(_previewTimer);
+  _previewTimer = setTimeout(requestPreview, 600);
+}
+
+async function requestPreview() {
+  if (!curImg) return;
+  if (_previewCtrl) _previewCtrl.abort();
+  _previewCtrl = new AbortController();
+
+  const spin = document.getElementById('previewSpin');
+  spin.style.display = '';
+
+  const fd = new FormData();
+  fd.append('image', curImg);
+  const t = document.getElementById('fTitle').value.trim();
+  const a = document.getElementById('fArtist').value.trim();
+  const al = document.getElementById('fAlbum').value.trim();
+  const h = document.getElementById('fHandle').value.trim();
+  if (t) fd.append('title', t);
+  if (a) fd.append('artist', a);
+  if (al) fd.append('album', al);
+  if (h) fd.append('handle', h);
+  if (curDisc) fd.append('disc_image', curDisc);
+  if (curBg)   fd.append('bg_image', curBg);
+
+  try {
+    const r = await fetch('/preview', { method:'POST', body:fd, signal:_previewCtrl.signal });
+    if (!r.ok) { spin.style.display='none'; return; }
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const wrap = document.getElementById('previewWrap');
+    const ph   = document.getElementById('previewPh');
+    ph.style.display = 'none';
+    let img = wrap.querySelector('img');
+    if (!img) { img = document.createElement('img'); wrap.appendChild(img); }
+    img.src = url;
+  } catch(e) {
+    if (e.name !== 'AbortError') console.warn('preview error', e);
+  } finally {
+    spin.style.display = 'none';
+  }
+}
+
+// Atualiza preview quando digita nos campos de texto
+['fTitle','fArtist','fAlbum','fHandle'].forEach(id => {
+  document.getElementById(id).addEventListener('input', schedulePreview);
+});
 
 /* ── Queue ─────────────────────────────────────── */
 function addToQueue() {
@@ -647,6 +765,7 @@ function addToQueue() {
 
 function resetForm() {
   curImg = null; curAud = null; curDisc = null; curBg = null;
+  editingProjectId = null;
   document.getElementById('cdCover').innerHTML =
     '<span class="ph-icon">🖼</span><span class="ph-txt">Capa do álbum</span>';
   document.getElementById('cdLabel').textContent = 'clique ou arraste';
@@ -662,6 +781,15 @@ function resetForm() {
   document.getElementById('audInput').value  = '';
   document.getElementById('discInput').value = '';
   document.getElementById('bgInput').value   = '';
+  document.getElementById('fTitle').value  = '';
+  document.getElementById('fArtist').value = '';
+  document.getElementById('fAlbum').value  = '';
+  document.getElementById('fHandle').value = '';
+  // reset preview
+  const wrap = document.getElementById('previewWrap');
+  const img  = wrap.querySelector('img');
+  if (img) img.remove();
+  document.getElementById('previewPh').style.display = '';
 }
 
 function removeItem(id) {
@@ -735,6 +863,19 @@ async function generateAll() {
 async function startJob(item) {
   item.status = 'running'; item.message = 'Enviando arquivos…';
   renderQueue();
+
+  // Projeto salvo → usa endpoint do projeto
+  if (item.projectId && !item.imgFile) {
+    try {
+      const r = await fetch(`/projects/${item.projectId}/generate`, { method:'POST' });
+      const d = await r.json();
+      if (!r.ok || d.error) { failJob(item, d.error || `HTTP ${r.status}`); return; }
+      item.jobId = d.job_id; item.message = 'Iniciando…';
+      renderQueue();
+      await pollJob(item);
+    } catch(ex) { failJob(item, 'Falha na conexão'); }
+    return;
+  }
 
   const fd = new FormData();
   fd.append('image', item.imgFile);
@@ -829,6 +970,175 @@ function esc(str) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+/* ── Projects (persistência) ───────────────────── */
+let savedProjects = [];
+
+async function loadProjects() {
+  try {
+    const r = await fetch('/projects');
+    savedProjects = await r.json();
+    renderProjects();
+  } catch(e) { console.warn('loadProjects', e); }
+}
+
+function renderProjects() {
+  const panel = document.getElementById('projPanel');
+  const list  = document.getElementById('projList');
+  document.getElementById('projCount').textContent = savedProjects.length;
+  if (!savedProjects.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  list.innerHTML = savedProjects.map(p => {
+    const coverFile = p.files?.image;
+    const thumbUrl  = coverFile ? `/projects/${esc(p.id)}/file/${esc(coverFile)}` : '';
+    const sub = [p.artist, p.album].filter(Boolean).join(' · ');
+    return `
+    <div class="proj-card">
+      <div class="mini-case">
+        <div class="mini-spine"></div>
+        ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : '<div style="flex:1;background:#181818"></div>'}
+      </div>
+      <div class="proj-meta">
+        <div class="proj-title">${esc(p.title || p.files?.audio || 'Sem título')}</div>
+        <div class="proj-sub">${esc(sub)}</div>
+      </div>
+      <div class="proj-actions">
+        <button class="btn btn-ghost" onclick="editProject('${esc(p.id)}')" title="Editar">✏️</button>
+        <button class="btn btn-ghost" onclick="requeueProject('${esc(p.id)}')" title="Adicionar à Fila">🔄</button>
+        <button class="btn btn-ghost" onclick="deleteProject('${esc(p.id)}')" title="Excluir" style="color:var(--err)">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveProject() {
+  if (!curImg) { toast('Selecione ao menos a capa!', 'error'); return; }
+  const fd = new FormData();
+  if (editingProjectId) fd.append('id', editingProjectId);
+  fd.append('image', curImg);
+  if (curAud)  fd.append('audio', curAud);
+  if (curDisc) fd.append('disc_image', curDisc);
+  if (curBg)   fd.append('bg_image', curBg);
+  fd.append('title',  document.getElementById('fTitle').value.trim());
+  fd.append('artist', document.getElementById('fArtist').value.trim());
+  fd.append('album',  document.getElementById('fAlbum').value.trim());
+  fd.append('handle', document.getElementById('fHandle').value.trim());
+  fd.append('fps',    document.getElementById('oFps').value);
+  fd.append('rpm',    document.getElementById('oRpm').value);
+  fd.append('preset', document.getElementById('oPreset').value);
+  try {
+    const r = await fetch('/projects', { method:'POST', body:fd });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Erro ao salvar', 'error'); return; }
+    editingProjectId = d.id;
+    toast('Projeto salvo!', 'success');
+    loadProjects();
+  } catch(e) { toast('Erro de conexão', 'error'); }
+}
+
+async function editProject(pid) {
+  const p = savedProjects.find(x => x.id === pid);
+  if (!p) return;
+  resetForm();
+  editingProjectId = pid;
+  // Preenche campos de texto
+  document.getElementById('fTitle').value  = p.title  || '';
+  document.getElementById('fArtist').value = p.artist || '';
+  document.getElementById('fAlbum').value  = p.album  || '';
+  document.getElementById('fHandle').value = p.handle || '';
+  if (p.fps)    document.getElementById('oFps').value    = p.fps;
+  if (p.rpm)    document.getElementById('oRpm').value    = p.rpm;
+  if (p.preset) document.getElementById('oPreset').value = p.preset;
+  // Carregar arquivos como blobs para curImg / curAud / etc
+  const files = p.files || {};
+  if (files.image) {
+    try {
+      const r = await fetch(`/projects/${pid}/file/${files.image}`);
+      const b = await r.blob();
+      curImg = new File([b], files.image, {type: b.type});
+      setImg(curImg);
+    } catch(e) {}
+  }
+  if (files.audio) {
+    try {
+      const r = await fetch(`/projects/${pid}/file/${files.audio}`);
+      const b = await r.blob();
+      curAud = new File([b], files.audio, {type: b.type});
+      const lbl = document.getElementById('audLabel');
+      lbl.textContent = files.audio; lbl.style.color = 'var(--gold)';
+    } catch(e) {}
+  }
+  if (files.disc_image) {
+    try {
+      const r = await fetch(`/projects/${pid}/file/${files.disc_image}`);
+      const b = await r.blob();
+      curDisc = new File([b], files.disc_image, {type: b.type});
+      const lbl = document.getElementById('discLabel');
+      lbl.innerHTML = files.disc_image; lbl.style.color = 'var(--gold)';
+    } catch(e) {}
+  }
+  if (files.bg_image) {
+    try {
+      const r = await fetch(`/projects/${pid}/file/${files.bg_image}`);
+      const b = await r.blob();
+      curBg = new File([b], files.bg_image, {type: b.type});
+      const lbl = document.getElementById('bgLabel');
+      lbl.innerHTML = files.bg_image; lbl.style.color = 'var(--gold)';
+    } catch(e) {}
+  }
+  toast('Projeto carregado para edição', 'info');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+async function requeueProject(pid) {
+  const p = savedProjects.find(x => x.id === pid);
+  if (!p) return;
+  const files = p.files || {};
+  if (!files.image || !files.audio) {
+    toast('Projeto incompleto — falta capa ou áudio', 'error'); return;
+  }
+  // Baixa cover para thumbnail
+  let imgUrl = '';
+  try {
+    const r = await fetch(`/projects/${pid}/file/${files.image}`);
+    const b = await r.blob();
+    imgUrl = URL.createObjectURL(b);
+  } catch(e) {}
+
+  const item = {
+    id:        Math.random().toString(36).slice(2, 9),
+    projectId: pid,
+    imgFile:   null, audFile: null, discFile: null, bgFile: null,
+    title:     p.title  || '',
+    artist:    p.artist || '',
+    album:     p.album  || '',
+    handle:    p.handle || '',
+    fps:       p.fps    || '30',
+    rpm:       p.rpm    || '8',
+    preset:    p.preset || 'fast',
+    imgUrl:    imgUrl,
+    jobId:     null,
+    status:    'pending',
+    progress:  0,
+    message:   'Aguardando…',
+  };
+  queue.push(item);
+  renderQueue();
+  toast('"' + (item.title || 'Projeto') + '" adicionado à fila!', 'success');
+}
+
+async function deleteProject(pid) {
+  if (!confirm('Excluir este projeto?')) return;
+  try {
+    await fetch(`/projects/${pid}`, { method:'DELETE' });
+    toast('Projeto excluído', 'info');
+    loadProjects();
+    if (editingProjectId === pid) editingProjectId = null;
+  } catch(e) { toast('Erro ao excluir', 'error'); }
+}
+
+// Carrega projetos ao iniciar
+loadProjects();
 </script>
 </body>
 </html>

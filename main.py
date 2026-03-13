@@ -125,14 +125,19 @@ def read_tags(audio_path: str) -> dict:
 
 # ── Fundo borrado ────────────────────────────────────────────────────────────
 
-def make_background(img: Image.Image) -> np.ndarray:
+def make_background(img: Image.Image, is_custom: bool = False) -> np.ndarray:
     """
-    Redimensiona, desfoca e escurece a imagem para usar como fundo.
+    Redimensiona e escurece a imagem para usar como fundo.
+    Se is_custom=True (fundo enviado pelo usuário), aplica processamento mais leve.
     Retorna array RGB uint8 (H x W x 3).
     """
     bg = img.convert("RGB").resize((VIDEO_W, VIDEO_H), Image.LANCZOS)
-    bg = bg.filter(ImageFilter.GaussianBlur(radius=48))
-    bg = ImageEnhance.Brightness(bg).enhance(0.30)
+    if is_custom:
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=6))
+        bg = ImageEnhance.Brightness(bg).enhance(0.55)
+    else:
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=48))
+        bg = ImageEnhance.Brightness(bg).enhance(0.30)
     arr = np.array(bg, dtype=np.float32)
 
     # Vinheta lateral direita — gradiente escurecendo a área do texto
@@ -346,6 +351,54 @@ def make_text_layer(info: dict, handle: Optional[str],
 
 # ── Gerador principal ────────────────────────────────────────────────────────
 
+
+def generate_preview(
+    image_path:      str,
+    title:           Optional[str] = None,
+    artist:          Optional[str] = None,
+    album:           Optional[str] = None,
+    handle:          Optional[str] = None,
+    disc_image_path: Optional[str] = None,
+    bg_image_path:   Optional[str] = None,
+) -> bytes:
+    """
+    Gera um único frame PNG do vídeo (sem áudio, sem rotação).
+    Retorna os bytes do PNG em memória.
+    """
+    import io
+    W, H = VIDEO_W, VIDEO_H
+
+    img      = Image.open(image_path)
+    disc_src = Image.open(disc_image_path) if disc_image_path else img
+    bg_src   = Image.open(bg_image_path)   if bg_image_path   else img
+
+    meta = {"title": title or Path(image_path).stem, "artist": artist or "", "album": album or ""}
+
+    # Geometria (mesma de generate())
+    case_h = int(H * 0.76)
+    cd_x   = int(W * 0.035)
+    cd_y   = (H - case_h) // 2 - 8
+    disc_d = int(case_h * 0.82)
+    disc_x = cd_x + case_h - disc_d // 2 + 20
+    disc_y = (H - disc_d) // 2 + 10
+    tx, ty = int(W * 0.52), int(H * 0.21)
+
+    bg_arr   = make_background(bg_src, is_custom=bool(bg_image_path))
+    disc_pil = make_cd_disc(disc_src, disc_d)
+    case_arr = np.array(make_cd_case(img, case_h))
+    text_arr = make_text_layer(meta, handle, tx, ty, W, H)
+
+    b = bg_arr.astype(np.float32)
+    _blend(b, np.array(disc_pil), disc_x, disc_y)
+    _blend(b, case_arr,           cd_x,   cd_y)
+    _blend(b, text_arr,           0,      0)
+
+    out = Image.fromarray(np.clip(b, 0, 255).astype(np.uint8))
+    buf = io.BytesIO()
+    out.save(buf, format="PNG", optimize=False)
+    return buf.getvalue()
+
+
 def generate(
     image_path:      str,
     audio_path:      str,
@@ -408,7 +461,7 @@ def generate(
     # ── Pré-renderização (tudo em float32 para blending rápido) ──────────────
     print("  ↳ Preparando visuais…")
 
-    bg_img   = Image.fromarray(make_background(bg_src)).convert("RGBA")
+    bg_img   = Image.fromarray(make_background(bg_src, is_custom=bool(bg_image_path))).convert("RGBA")
     disc_pil = make_cd_disc(disc_src, disc_d)
     case_arr = np.array(make_cd_case(img, case_h))                  # capa (jewel case)
 

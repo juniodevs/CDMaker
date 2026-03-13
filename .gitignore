@@ -19,6 +19,7 @@ env/
 # Uploads and output
 uploads/
 output/
+projects/
 
 # OS
 Thumbs.db
