@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>CDMaker — Now Playing Generator</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:      #08090e;
+  --s0:      rgba(255,255,255,0.03);
+  --s1:      rgba(255,255,255,0.055);
+  --s2:      rgba(255,255,255,0.09);
+  --bd:      rgba(255,255,255,0.07);
+  --bd2:     rgba(255,255,255,0.13);
+  --gold:    #ffd700;
+  --gold2:   #ffb700;
+  --gold-bg: rgba(255,215,0,0.1);
+  --gold-gl: rgba(255,215,0,0.28);
+  --txt:     #eaeaea;
+  --muted:   #888;
+  --dim:     #444;
+  --ok:      #6bff9a;
+  --ok-bg:   rgba(107,255,154,0.1);
+  --err:     #ff6b6b;
+  --err-bg:  rgba(255,107,107,0.1);
+  --r:       13px;
+  --rsm:     8px;
+}
+
+html{ scroll-behavior:smooth }
+
+body{
+  background:var(--bg);
+  color:var(--txt);
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  min-height:100vh;
+  line-height:1.5;
+}
+
+/* subtle ambient glow */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 70% 50% at 15% 5%,  rgba(255,215,0,0.05) 0%,transparent 60%),
+    radial-gradient(ellipse 50% 40% at 85% 90%,  rgba(60,80,200,0.05) 0%,transparent 60%);
+  z-index:0;
+}
+
+/* ── Header ─────────────────────────────────────── */
+header{
+  position:relative;z-index:1;
+  padding:36px 52px 28px;
+  border-bottom:1px solid var(--bd);
+  display:flex;align-items:center;gap:0;
+}
+.logo-mark{
+  font-size:30px;margin-right:14px;
+  filter:drop-shadow(0 0 10px rgba(255,215,0,0.5));
+}
+.logo-name{
+  font-size:24px;font-weight:800;letter-spacing:-0.5px;
+  background:linear-gradient(125deg,#fff 20%,var(--gold) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.logo-sep{
+  width:1px;height:22px;background:var(--dim);
+  margin:0 18px;flex-shrink:0;
+}
+.logo-sub{
+  font-size:13px;color:var(--muted);
+  -webkit-text-fill-color:var(--muted);
+}
+
+/* ── Main ───────────────────────────────────────── */
+main{
+  position:relative;z-index:1;
+  max-width:1080px;margin:0 auto;
+  padding:38px 24px 80px;
+  display:flex;flex-direction:column;gap:24px;
+}
+
+/* ── Panel ──────────────────────────────────────── */
+.panel{
+  background:var(--s0);
+  border:1px solid var(--bd);
+  border-radius:var(--r);
+  overflow:hidden;
+}
+.panel-head{
+  padding:20px 28px 16px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--bd);
+}
+.panel-title{font-size:15px;font-weight:600;color:var(--txt)}
+.panel-body{padding:24px 28px 28px;display:flex;gap:28px}
+
+/* ── Upload column ─────────────────────────────── */
+.uploads-col{display:flex;flex-direction:column;gap:14px;flex-shrink:0}
+
+/* CD Case ––––––––––––––––––––––––– */
+.cd-wrap{
+  position:relative;
+  width:194px;height:194px;
+  cursor:pointer;
+  transition:transform .2s;
+}
+.cd-wrap:hover{transform:scale(1.015)}
+.cd-wrap.drag-over .cd-case{
+  box-shadow:0 0 0 2px var(--gold),8px 8px 30px rgba(0,0,0,.9);
+  border-color:var(--gold);
+}
+
+.cd-case{
+  width:194px;height:194px;
+  position:relative;
+  display:flex;
+  border:1px solid #3a3a3a;
+  border-radius:2px;
+  overflow:hidden;
+  box-shadow:8px 8px 30px rgba(0,0,0,.85),inset 0 1px 0 rgba(255,255,255,.05);
+  transition:box-shadow .2s,border-color .2s;
+}
+.cd-spine{
+  width:14px;min-width:14px;
+  background:#050505;
+  border-right:1px solid #1c1c1c;
+  position:relative;z-index:2;
+  flex-shrink:0;
+}
+.cd-cover{
+  flex:1;position:relative;
+  background:#181818;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:8px;color:var(--dim);overflow:hidden;
+}
+.cd-cover img{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+}
+.cd-cover .ph-icon{font-size:30px;opacity:.4;display:block}
+.cd-cover .ph-txt{font-size:12px;color:var(--dim);display:block}
+
+/* plastic shine overlay */
+.cd-case::after{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:5;
+  background:linear-gradient(135deg,rgba(255,255,255,.08) 0%,transparent 42%);
+}
+
+.cd-overlay-label{
+  position:absolute;bottom:7px;left:50%;transform:translateX(-50%);
+  font-size:10px;color:rgba(255,255,255,.45);
+  background:rgba(0,0,0,.55);padding:2px 9px;border-radius:99px;
+  white-space:nowrap;z-index:6;pointer-events:none;
+  max-width:160px;overflow:hidden;text-overflow:ellipsis;
+}
+#imgInput{display:none}
+
+/* Audio Zone –––––––––––––––––––– */
+.audio-zone{
+  width:194px;
+  background:var(--s0);
+  border:1px dashed var(--bd2);
+  border-radius:var(--rsm);
+  padding:16px 12px;
+  cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  text-align:center;
+  transition:background .15s,border-color .15s;
+}
+.audio-zone:hover,.audio-zone.drag-over{
+  background:var(--s1);border-color:var(--gold);
+}
+.az-icon{font-size:26px;opacity:.7}
+.az-name{font-size:13px;color:var(--txt);word-break:break-all;line-height:1.3}
+.az-fmts{font-size:11px;color:var(--dim)}
+#audInput{display:none}
+
+/* ── Metadata column ───────────────────────────── */
+.meta-col{flex:1;display:flex;flex-direction:column;gap:14px;min-width:0}
+
+.field label{
+  display:block;font-size:11.5px;color:var(--muted);
+  margin-bottom:5px;letter-spacing:.3px;text-transform:uppercase;
+}
+.field input{
+  width:100%;
+  background:var(--s1);
+  border:1px solid var(--bd);
+  border-radius:var(--rsm);
+  padding:10px 14px;
+  color:var(--txt);font-size:14px;font-family:inherit;
+  outline:none;
+  transition:border-color .15s,background .15s,box-shadow .15s;
+}
+.field input:focus{
+  border-color:rgba(255,215,0,.45);
+  background:var(--s2);
+  box-shadow:0 0 0 3px rgba(255,215,0,.07);
+}
+.field input::placeholder{color:var(--dim)}
+
+/* ── Buttons ────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  padding:10px 22px;border-radius:var(--rsm);
+  font-size:14px;font-weight:600;font-family:inherit;
+  cursor:pointer;border:none;outline:none;
+  transition:all .15s;text-decoration:none;
+  line-height:1;
+}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+
+.btn-gold{background:var(--gold);color:#000}
+.btn-gold:hover:not(:disabled){
+  background:#ffe134;
+  box-shadow:0 0 22px var(--gold-gl);
+}
+.btn-ghost{
+  background:transparent;color:var(--muted);
+  border:1px solid var(--bd);
+}
+.btn-ghost:hover:not(:disabled){background:var(--s1);color:var(--txt)}
+
+.btn-dl{
+  background:var(--ok-bg);color:var(--ok);
+  border:1px solid rgba(107,255,154,.18);
+  font-size:12.5px;padding:7px 14px;
+}
+.btn-dl:hover{background:rgba(107,255,154,.18)}
+
+/* ── Queue Panel ─────────────────────────────────── */
+.queue-head{
+  padding:18px 28px;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:12px;
+  border-bottom:1px solid var(--bd);
+}
+.queue-title{font-size:15px;font-weight:600}
+
+.badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--gold);color:#000;
+  border-radius:99px;font-size:11px;font-weight:800;
+  min-width:20px;height:20px;padding:0 6px;
+  margin-left:7px;
+}
+
+#queueList{display:flex;flex-direction:column}
+
+/* Track card */
+.track-card{
+  display:flex;align-items:center;gap:18px;
+  padding:16px 24px;
+  border-bottom:1px solid var(--bd);
+  transition:background .12s;
+  flex-wrap:wrap;
+}
+.track-card:last-child{border-bottom:none}
+.track-card:hover{background:rgba(255,255,255,.02)}
+
+/* Mini CD case */
+.mini-case{
+  width:54px;height:54px;flex-shrink:0;
+  display:flex;
+  border:1px solid #3a3a3a;border-radius:2px;
+  overflow:hidden;
+  box-shadow:3px 3px 12px rgba(0,0,0,.7);
+}
+.mini-spine{width:6px;min-width:6px;background:#050505;border-right:1px solid #181818}
+.mini-case img{flex:1;object-fit:cover}
+
+.card-info{flex:1;min-width:0}
+.card-title{
+  font-size:14.5px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  margin-bottom:2px;
+}
+.card-sub{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+
+.progress-row{display:flex;align-items:center;gap:10px}
+.progress-bg{
+  flex:1;height:3px;border-radius:99px;
+  background:rgba(255,255,255,.07);overflow:hidden;
+  min-width:80px;
+}
+.progress-fill{
+  height:100%;border-radius:99px;
+  background:linear-gradient(90deg,var(--gold2),var(--gold),#fff8c0);
+  transition:width .6s ease;
+}
+.progress-fill.done{background:linear-gradient(90deg,#4cde87,var(--ok))}
+.progress-fill.err{background:var(--err)}
+.progress-msg{font-size:11.5px;color:var(--muted);white-space:nowrap;flex-shrink:0}
+
+.card-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+.status-pill{
+  font-size:11px;font-weight:700;
+  padding:3px 10px;border-radius:99px;
+  letter-spacing:.3px;text-transform:uppercase;
+}
+.sp-pending{background:rgba(255,255,255,.06);color:var(--muted)}
+.sp-running{background:var(--gold-bg);color:var(--gold)}
+.sp-done   {background:var(--ok-bg);   color:var(--ok)}
+.sp-error  {background:var(--err-bg);  color:var(--err)}
+
+.err-tip{font-size:12px;color:var(--err)}
+
+/* ── Empty state ─────────────────────────────────── */
+.empty-hint{
+  text-align:center;padding:44px 24px;color:var(--dim);
+  font-size:14px;line-height:1.8;
+}
+.empty-hint .eh-icon{font-size:36px;display:block;margin-bottom:10px;opacity:.5}
+
+/* ── Toasts ─────────────────────────────────────── */
+#toasts{
+  position:fixed;bottom:26px;right:26px;
+  display:flex;flex-direction:column;gap:8px;
+  z-index:9000;
+}
+.toast{
+  padding:11px 17px;border-radius:var(--rsm);
+  font-size:13px;font-weight:500;
+  box-shadow:0 8px 28px rgba(0,0,0,.55);
+  transform:translateX(115%);
+  transition:transform .3s cubic-bezier(.22,1,.36,1);
+  max-width:320px;
+  pointer-events:none;
+}
+.toast.show{transform:translateX(0)}
+.toast-success{background:#162219;border:1px solid rgba(107,255,154,.2);color:var(--ok)}
+.toast-error  {background:#221616;border:1px solid rgba(255,107,107,.2);color:var(--err)}
+.toast-info   {background:var(--s1);border:1px solid var(--bd);color:var(--txt)}
+
+/* ── Responsive ─────────────────────────────────── */
+@media(max-width:720px){
+  header{padding:24px 20px 18px}
+  .logo-sep,.logo-sub{display:none}
+  main{padding:22px 14px 60px}
+  .panel-body{flex-direction:column}
+  .uploads-col{flex-direction:row;flex-wrap:wrap}
+  .cd-wrap,.audio-zone{width:100%;max-width:260px}
+  .panel-head{padding:16px 18px 14px}
+  .track-card{padding:14px 16px}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────── -->
+<header>
+  <span class="logo-mark">🎵</span>
+  <span class="logo-name">CDMaker</span>
+  <div class="logo-sep"></div>
+  <span class="logo-sub">Gerador de vídeos Now Playing para redes sociais</span>
+</header>
+
+<!-- ── Main ───────────────────────────────────────── -->
+<main>
+
+  <!-- Add Track panel -->
+  <div class="panel">
+    <div class="panel-head">
+      <span class="panel-title">Adicionar à Fila</span>
+    </div>
+    <div class="panel-body">
+
+      <!-- Upload column -->
+      <div class="uploads-col">
+
+        <!-- CD Case (imagem) -->
+        <div class="cd-wrap" id="imgZone" title="Clique ou arraste a capa do álbum">
+          <div class="cd-case">
+            <div class="cd-spine"></div>
+            <div class="cd-cover" id="cdCover">
+              <span class="ph-icon">🖼</span>
+              <span class="ph-txt">Capa do álbum</span>
+            </div>
+          </div>
+          <div class="cd-overlay-label" id="cdLabel">clique ou arraste</div>
+          <input type="file" id="imgInput" accept=".jpg,.jpeg,.png,.webp,.bmp,image/*">
+        </div>
+
+        <!-- Áudio -->
+        <div class="audio-zone" id="audZone" title="Clique ou arraste o arquivo de áudio">
+          <span class="az-icon">🎵</span>
+          <span class="az-name" id="audLabel">Arquivo de áudio</span>
+          <span class="az-fmts">.mp3 · .flac · .wav · .ogg · .m4a</span>
+          <input type="file" id="audInput" accept=".mp3,.flac,.wav,.ogg,.m4a,.aac,audio/*">
+        </div>
+
+        <!-- Arte do Disco (opcional) -->
+        <div class="audio-zone" id="discZone" title="Arte do CD (opcional — usa a capa se omitido)" style="cursor:pointer">
+          <span class="az-icon">💿</span>
+          <span class="az-name" id="discLabel">Arte do disco  <em style="color:var(--muted);font-style:normal">(opcional)</em></span>
+          <span class="az-fmts">.jpg · .png · .webp</span>
+          <input type="file" id="discInput" accept=".jpg,.jpeg,.png,.webp,.bmp,image/*">
+        </div>
+
+        <!-- Imagem de Fundo (opcional) -->
+        <div class="audio-zone" id="bgZone" title="Imagem de fundo (opcional — usa a capa com blur se omitido)" style="cursor:pointer">
+          <span class="az-icon">🌄</span>
+          <span class="az-name" id="bgLabel">Fundo da cena  <em style="color:var(--muted);font-style:normal">(opcional)</em></span>
+          <span class="az-fmts">.jpg · .png · .webp</span>
+          <input type="file" id="bgInput" accept=".jpg,.jpeg,.png,.webp,.bmp,image/*">
+        </div>
+
+      </div><!-- /uploads-col -->
+
+      <!-- Metadata column -->
+      <div class="meta-col">
+        <div class="field">
+          <label>Título</label>
+          <input id="fTitle" placeholder="Nome da música  (opcional — lê das tags do arquivo)">
+        </div>
+        <div class="field">
+          <label>Artista</label>
+          <input id="fArtist" placeholder="Nome do artista">
+        </div>
+        <div class="field">
+          <label>Álbum / Gravadora</label>
+          <input id="fAlbum" placeholder="Nome do álbum ou gravadora">
+        </div>
+        <div class="field">
+          <label>Handle (redes sociais)</label>
+          <input id="fHandle" placeholder="ex: NESTALGIA">
+        </div>
+        <button class="btn btn-gold" id="addBtn" onclick="addToQueue()" style="margin-top:4px;align-self:flex-start">
+          + Adicionar à Fila
+        </button>
+      </div>
+
+    </div><!-- /panel-body -->
+
+    <!-- Render Options (collapsible) -->
+    <div style="border-top:1px solid var(--bd)">
+      <button onclick="toggleOpts()" id="optsToggle"
+              style="width:100%;background:none;border:none;color:var(--muted);font:13px/1 inherit;
+                     padding:13px 28px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:8px">
+        <span id="optsArrow" style="transition:transform .2s;display:inline-block">▶</span>
+        Opções de Render
+      </button>
+      <div id="optsBody" style="display:none;padding:16px 28px 22px;display:none">
+        <div style="display:flex;flex-wrap:wrap;gap:14px 28px">
+
+          <!-- FPS -->
+          <div class="field" style="flex:1;min-width:130px">
+            <label>FPS</label>
+            <select id="oFps" style="width:100%;background:var(--s1);border:1px solid var(--bd);
+                    border-radius:var(--rsm);padding:10px 12px;color:var(--txt);font:14px/1 inherit;outline:none">
+              <option value="24">24 fps  (mais rápido)</option>
+              <option value="30" selected>30 fps  (padrão)</option>
+              <option value="60">60 fps  (suave)</option>
+            </select>
+          </div>
+
+          <!-- Disco RPM -->
+          <div class="field" style="flex:1;min-width:130px">
+            <label>Rotação do CD</label>
+            <select id="oRpm" style="width:100%;background:var(--s1);border:1px solid var(--bd);
+                    border-radius:var(--rsm);padding:10px 12px;color:var(--txt);font:14px/1 inherit;outline:none">
+              <option value="0">Parado</option>
+              <option value="4">Muito Lento  (4 RPM — 15s/volta)</option>
+              <option value="8" selected>Lento  (8 RPM — 7.5s/volta)  ✦ padrão</option>
+              <option value="16">Médio  (16 RPM — 3.75s/volta)</option>
+              <option value="33">Vinil LP  (33 RPM — 1.8s/volta)</option>
+            </select>
+          </div>
+
+          <!-- Preset -->
+          <div class="field" style="flex:1;min-width:130px">
+            <label>Velocidade de Encode</label>
+            <select id="oPreset" style="width:100%;background:var(--s1);border:1px solid var(--bd);
+                    border-radius:var(--rsm);padding:10px 12px;color:var(--txt);font:14px/1 inherit;outline:none">
+              <option value="ultrafast">Ultrafast  (menor qualidade)</option>
+              <option value="superfast">Superfast</option>
+              <option value="veryfast">Very Fast</option>
+              <option value="fast" selected>Fast  (padrão)</option>
+              <option value="medium">Medium</option>
+              <option value="slow">Slow  (maior qualidade)</option>
+            </select>
+          </div>
+
+        </div>
+        <p style="font-size:11.5px;color:var(--dim);margin-top:12px">
+          💡 Ultrafast + 24fps = render ~4× mais rápido.  Medium + 30fps = melhor qualidade para upload.
+        </p>
+      </div>
+    </div>
+  </div><!-- /panel -->
+
+  <!-- Queue panel -->
+  <div class="panel" id="queuePanel" style="display:none">
+    <div class="queue-head">
+      <span class="queue-title">Fila <span class="badge" id="queueCount">0</span></span>
+      <button class="btn btn-gold" id="genAllBtn" onclick="generateAll()">▶ Gerar Todos</button>
+    </div>
+    <div id="queueList">
+      <div class="empty-hint" id="emptyHint">
+        <span class="eh-icon">🎶</span>
+        Adicione músicas acima para começar
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Toast container -->
+<div id="toasts"></div>
+
+<!-- ── JavaScript ─────────────────────────────────── -->
+<script>
+'use strict';
+
+/* ── State ─────────────────────────────────────── */
+const queue = [];
+let curImg   = null;   // File
+let curAud   = null;   // File
+let curDisc  = null;   // File (optional)
+let curBg    = null;   // File (optional)
+
+/* ── Drop zones setup ──────────────────────────── */
+function setupZone(el, onFile) {
+  el.addEventListener('dragover', e => {
+    e.preventDefault();
+    el.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave', e => {
+    if (!el.contains(e.relatedTarget)) el.classList.remove('drag-over');
+  });
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) onFile(f);
+  });
+  el.addEventListener('click', e => {
+    if (e.target.tagName !== 'INPUT') {
+      el.querySelector('input[type=file]').click();
+    }
+  });
+}
+
+setupZone(document.getElementById('imgZone'),  setImg);
+setupZone(document.getElementById('audZone'),  setAud);
+setupZone(document.getElementById('discZone'), setDisc);
+setupZone(document.getElementById('bgZone'),   setBg);
+
+document.getElementById('imgInput').addEventListener('change', e => {
+  if (e.target.files[0]) setImg(e.target.files[0]);
+});
+document.getElementById('audInput').addEventListener('change', e => {
+  if (e.target.files[0]) setAud(e.target.files[0]);
+});
+document.getElementById('discInput').addEventListener('change', e => {
+  if (e.target.files[0]) setDisc(e.target.files[0]);
+});
+document.getElementById('bgInput').addEventListener('change', e => {
+  if (e.target.files[0]) setBg(e.target.files[0]);
+});
+
+function setImg(file) {
+  const allowed = new Set(['.jpg','.jpeg','.png','.webp','.bmp']);
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!file.type.startsWith('image/') && !allowed.has(ext)) {
+    toast('Formato de imagem não suportado', 'error'); return;
+  }
+  curImg = file;
+  const url = URL.createObjectURL(file);
+  const cov  = document.getElementById('cdCover');
+  cov.innerHTML = '';
+  const img = document.createElement('img');
+  img.src = url; img.alt = 'capa';
+  cov.appendChild(img);
+  const lbl = document.getElementById('cdLabel');
+  lbl.textContent = file.name.length > 26 ? file.name.slice(0, 24) + '…' : file.name;
+}
+
+function setAud(file) {
+  const allowed = new Set(['.mp3','.flac','.wav','.ogg','.m4a','.aac']);
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!file.type.startsWith('audio/') && !allowed.has(ext)) {
+    toast('Formato de áudio não suportado', 'error'); return;
+  }
+  curAud = file;
+  const lbl = document.getElementById('audLabel');
+  lbl.textContent = file.name;
+  lbl.style.color = 'var(--gold)';
+}
+
+function setDisc(file) {
+  const allowed = new Set(['.jpg','.jpeg','.png','.webp','.bmp']);
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!file.type.startsWith('image/') && !allowed.has(ext)) {
+    toast('Formato de imagem não suportado', 'error'); return;
+  }
+  curDisc = file;
+  const lbl = document.getElementById('discLabel');
+  lbl.innerHTML = (file.name.length > 26 ? file.name.slice(0,24)+'…' : file.name);
+  lbl.style.color = 'var(--gold)';
+}
+
+function setBg(file) {
+  const allowed = new Set(['.jpg','.jpeg','.png','.webp','.bmp']);
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!file.type.startsWith('image/') && !allowed.has(ext)) {
+    toast('Formato de imagem não suportado', 'error'); return;
+  }
+  curBg = file;
+  const lbl = document.getElementById('bgLabel');
+  lbl.innerHTML = (file.name.length > 26 ? file.name.slice(0,24)+'…' : file.name);
+  lbl.style.color = 'var(--gold)';
+}
+
+/* ── Queue ─────────────────────────────────────── */
+function addToQueue() {
+  if (!curImg) { toast('Selecione uma imagem de capa!', 'error'); return; }
+  if (!curAud) { toast('Selecione um arquivo de áudio!', 'error'); return; }
+
+  const item = {
+    id:       Math.random().toString(36).slice(2, 9),
+    imgFile:  curImg,
+    audFile:  curAud,
+    discFile: curDisc,
+    bgFile:   curBg,
+    title:    document.getElementById('fTitle').value.trim(),
+    artist:   document.getElementById('fArtist').value.trim(),
+    album:    document.getElementById('fAlbum').value.trim(),
+    handle:   document.getElementById('fHandle').value.trim(),
+    fps:      document.getElementById('oFps').value,
+    rpm:      document.getElementById('oRpm').value,
+    preset:   document.getElementById('oPreset').value,
+    imgUrl:   URL.createObjectURL(curImg),
+    jobId:    null,
+    status:   'pending',
+    progress: 0,
+    message:  'Aguardando…',
+  };
+
+  queue.push(item);
+  renderQueue();
+  resetForm();
+  toast('"' + (item.title || item.audFile.name) + '" adicionado à fila!', 'success');
+}
+
+function resetForm() {
+  curImg = null; curAud = null; curDisc = null; curBg = null;
+  document.getElementById('cdCover').innerHTML =
+    '<span class="ph-icon">🖼</span><span class="ph-txt">Capa do álbum</span>';
+  document.getElementById('cdLabel').textContent = 'clique ou arraste';
+  const al = document.getElementById('audLabel');
+  al.textContent = 'Arquivo de áudio'; al.style.color = '';
+  const dl = document.getElementById('discLabel');
+  dl.innerHTML = 'Arte do disco  <em style="color:var(--muted);font-style:normal">(opcional)</em>';
+  dl.style.color = '';
+  const bl = document.getElementById('bgLabel');
+  bl.innerHTML = 'Fundo da cena  <em style="color:var(--muted);font-style:normal">(opcional)</em>';
+  bl.style.color = '';
+  document.getElementById('imgInput').value  = '';
+  document.getElementById('audInput').value  = '';
+  document.getElementById('discInput').value = '';
+  document.getElementById('bgInput').value   = '';
+}
+
+function removeItem(id) {
+  const i = queue.findIndex(x => x.id === id);
+  if (i >= 0 && queue[i].status === 'pending') {
+    URL.revokeObjectURL(queue[i].imgUrl);
+    queue.splice(i, 1);
+    renderQueue();
+  }
+}
+
+/* ── Render queue ─────────────────────────────── */
+function renderQueue() {
+  const panel = document.getElementById('queuePanel');
+  const list  = document.getElementById('queueList');
+  document.getElementById('queueCount').textContent = queue.length;
+
+  if (queue.length === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  list.innerHTML = queue.map(item => {
+    const d = item.status === 'done';
+    const e = item.status === 'error';
+    const r = item.status === 'running';
+    const p = item.status === 'pending';
+    const fillClass = d ? 'done' : e ? 'err' : '';
+    const pillClass = `sp-${item.status}`;
+    const pillLabel = {pending:'Aguardando', running:'Processando', done:'Concluído', error:'Erro'}[item.status] || item.status;
+
+    return `
+    <div class="track-card" id="card-${item.id}">
+      <div class="mini-case">
+        <div class="mini-spine"></div>
+        <img src="${esc(item.imgUrl)}" alt="">
+      </div>
+
+      <div class="card-info">
+        <div class="card-title">${esc(item.title || item.audFile.name)}</div>
+        <div class="card-sub">${esc([item.artist, item.album].filter(Boolean).join(' · '))}</div>
+        <div class="progress-row">
+          <div class="progress-bg">
+            <div class="progress-fill ${fillClass}" style="width:${item.progress}%"></div>
+          </div>
+          <span class="progress-msg">${esc(item.message)}</span>
+        </div>
+      </div>
+
+      <div class="card-actions">
+        <span class="status-pill ${pillClass}">${pillLabel}</span>
+        ${ d ? `<a class="btn btn-dl" href="/download/${esc(item.jobId)}" download="cdmaker.mp4">⬇ Baixar</a>` : '' }
+        ${ p ? `<button class="btn btn-ghost" onclick="removeItem('${esc(item.id)}')" title="Remover">✕</button>` : '' }
+        ${ e ? `<span class="err-tip" title="${esc(item.message)}">⚠</span>` : '' }
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── Generate ──────────────────────────────────── */
+async function generateAll() {
+  const pending = queue.filter(i => i.status === 'pending');
+  if (!pending.length) { toast('Nenhum item pendente!', 'error'); return; }
+
+  const btn = document.getElementById('genAllBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Gerando…';
+
+  // fire all in parallel
+  await Promise.all(pending.map(startJob));
+}
+
+async function startJob(item) {
+  item.status = 'running'; item.message = 'Enviando arquivos…';
+  renderQueue();
+
+  const fd = new FormData();
+  fd.append('image', item.imgFile);
+  fd.append('audio', item.audFile);
+  if (item.title)  fd.append('title',  item.title);
+  if (item.artist) fd.append('artist', item.artist);
+  if (item.album)  fd.append('album',  item.album);
+  if (item.handle) fd.append('handle', item.handle);
+  fd.append('fps',    item.fps);
+  fd.append('rpm',    item.rpm);
+  fd.append('preset', item.preset);
+  if (item.discFile) fd.append('disc_image', item.discFile);
+  if (item.bgFile)   fd.append('bg_image',   item.bgFile);
+
+  try {
+    const r = await fetch('/generate', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok || d.error) { failJob(item, d.error || `HTTP ${r.status}`); return; }
+    item.jobId   = d.job_id;
+    item.message = 'Iniciando…';
+    renderQueue();
+    await pollJob(item);
+  } catch (ex) {
+    failJob(item, 'Falha na conexão com o servidor');
+  }
+}
+
+function pollJob(item) {
+  return new Promise(resolve => {
+    const tid = setInterval(async () => {
+      try {
+        const r = await fetch('/status/' + item.jobId);
+        if (!r.ok) return;
+        const d = await r.json();
+        item.progress = d.progress ?? item.progress;
+        item.message  = d.message  ?? item.message;
+
+        if (d.status === 'done') {
+          item.status = 'done';
+          clearInterval(tid); renderQueue(); checkDone();
+          toast('"' + (item.title || item.audFile.name) + '" concluído! 🎉', 'success');
+          resolve();
+        } else if (d.status === 'error') {
+          failJob(item, d.message || 'Erro desconhecido');
+          clearInterval(tid); resolve();
+        } else {
+          renderQueue();
+        }
+      } catch (_) { /* keep polling on network hiccup */ }
+    }, 1500);
+  });
+}
+
+function failJob(item, msg) {
+  item.status = 'error'; item.message = msg;
+  renderQueue(); checkDone();
+  toast('Erro: ' + msg, 'error');
+}
+
+function checkDone() {
+  if (!queue.some(i => i.status === 'running')) {
+    const btn = document.getElementById('genAllBtn');
+    btn.disabled = false;
+    btn.textContent = '▶ Gerar Todos';
+  }
+}
+
+/* ── Toasts ───────────────────────────────────── */
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 350);
+  }, 4200);
+}
+
+/* ── Utils ────────────────────────────────────── */
+function toggleOpts() {
+  const body  = document.getElementById('optsBody');
+  const arrow = document.getElementById('optsArrow');
+  const open  = body.style.display !== 'none';
+  body.style.display  = open ? 'none'  : 'block';
+  arrow.style.transform = open ? ''   : 'rotate(90deg)';
+}
+
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
