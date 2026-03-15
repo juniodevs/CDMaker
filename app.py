@@ -96,8 +96,9 @@ def start_generate():
 
     vertical = request.form.get("vertical", "").lower() in ("1", "true", "on")
 
+    cancel_ev = threading.Event()
     with _lock:
-        _jobs[job_id] = {"status": "running", "progress": 0, "message": "Iniciando…"}
+        _jobs[job_id] = {"status": "running", "progress": 0, "message": "Iniciando…", "cancel_event": cancel_ev}
 
     def _run() -> None:
         try:
@@ -112,10 +113,15 @@ def start_generate():
                 disc_image_path=disc_img_path, bg_image_path=bg_img_path,
                 fps=fps, rpm=rpm, preset=preset,
                 progress_cb=_cb, vertical=vertical,
+                cancel_event=cancel_ev,
             )
             _set(job_id, status="done", progress=100, message="Concluído!")
         except Exception as exc:
-            _set(job_id, status="error", message=str(exc))
+            if "__cdmaker_cancelled__" in str(exc):
+                _set(job_id, status="cancelled", message="Cancelado pelo usuário")
+                (OUTPUT_DIR / f"{job_id}.mp4").unlink(missing_ok=True)
+            else:
+                _set(job_id, status="error", message=str(exc))
         finally:
             shutil.rmtree(str(job_dir), ignore_errors=True)
 
@@ -130,6 +136,7 @@ def job_status(job_id: str):
         job = dict(_jobs.get(job_id, {}))
     if not job:
         return jsonify({"status": "not_found"}), 404
+    job.pop("cancel_event", None)
     return jsonify(job)
 
 @app.route("/download/<job_id>")
@@ -156,6 +163,19 @@ def download(job_id: str):
         download_name=f"cdmaker_{job_id}.mp4",
         mimetype="video/mp4",
     )
+
+@app.route("/cancel/<job_id>", methods=["POST"])
+def cancel_job(job_id: str):
+    if not _valid_id(job_id):
+        return jsonify({"error": "invalid"}), 400
+    with _lock:
+        job = _jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "not found"}), 404
+    ev = job.get("cancel_event")
+    if ev:
+        ev.set()
+    return jsonify({"ok": True})
 
 @app.route("/preview", methods=["POST"])
 def preview():
@@ -349,8 +369,9 @@ def generate_from_project(pid: str):
     vertical = str(manifest.get("vertical", "false")).lower() in ("1", "true", "on")
 
     job_id = uuid.uuid4().hex[:12]
+    cancel_ev = threading.Event()
     with _lock:
-        _jobs[job_id] = {"status": "running", "progress": 0, "message": "Iniciando…"}
+        _jobs[job_id] = {"status": "running", "progress": 0, "message": "Iniciando…", "cancel_event": cancel_ev}
 
     def _run():
         try:
@@ -363,10 +384,15 @@ def generate_from_project(pid: str):
                 disc_image_path=disc_path, bg_image_path=bg_path,
                 fps=fps, rpm=rpm, preset=preset,
                 progress_cb=_cb, vertical=vertical,
+                cancel_event=cancel_ev,
             )
             _set(job_id, status="done", progress=100, message="Concluído!")
         except Exception as exc:
-            _set(job_id, status="error", message=str(exc))
+            if "__cdmaker_cancelled__" in str(exc):
+                _set(job_id, status="cancelled", message="Cancelado pelo usuário")
+                (OUTPUT_DIR / f"{job_id}.mp4").unlink(missing_ok=True)
+            else:
+                _set(job_id, status="error", message=str(exc))
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"job_id": job_id})

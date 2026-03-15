@@ -301,10 +301,12 @@ main{
   padding:3px 10px;border-radius:99px;
   letter-spacing:.3px;text-transform:uppercase;
 }
-.sp-pending{background:rgba(255,255,255,.06);color:var(--muted)}
-.sp-running{background:var(--gold-bg);color:var(--gold)}
-.sp-done   {background:var(--ok-bg);   color:var(--ok)}
-.sp-error  {background:var(--err-bg);  color:var(--err)}
+.sp-pending   {background:rgba(255,255,255,.06);color:var(--muted)}
+.sp-running   {background:var(--gold-bg);color:var(--gold)}
+.sp-done      {background:var(--ok-bg);   color:var(--ok)}
+.sp-error     {background:var(--err-bg);  color:var(--err)}
+.sp-cancelling{background:rgba(255,165,0,.12);color:#ffa500}
+.sp-cancelled {background:rgba(255,255,255,.06);color:var(--muted)}
 
 .err-tip{font-size:12px;color:var(--err)}
 
@@ -843,9 +845,11 @@ function renderQueue() {
     const e = item.status === 'error';
     const r = item.status === 'running';
     const p = item.status === 'pending';
+    const cx = item.status === 'cancelling';
+    const ca = item.status === 'cancelled';
     const fillClass = d ? 'done' : e ? 'err' : '';
     const pillClass = `sp-${item.status}`;
-    const pillLabel = {pending:'Aguardando', running:'Processando', done:'Concluído', error:'Erro'}[item.status] || item.status;
+    const pillLabel = {pending:'Aguardando', running:'Processando', done:'Concluído', error:'Erro', cancelling:'Cancelando…', cancelled:'Cancelado'}[item.status] || item.status;
 
     return `
     <div class="track-card" id="card-${item.id}">
@@ -869,6 +873,7 @@ function renderQueue() {
         <span class="status-pill ${pillClass}">${pillLabel}</span>
         ${ d ? `<a class="btn btn-dl" href="/download/${esc(item.jobId)}" download="cdmaker.mp4">⬇ Baixar</a>` : '' }
         ${ p ? `<button class="btn btn-ghost" onclick="removeItem('${esc(item.id)}')" title="Remover">✕</button>` : '' }
+        ${ r ? `<button class="btn btn-ghost" onclick="cancelItem('${esc(item.id)}')" title="Cancelar" style="color:var(--err)">⏹ Cancelar</button>` : '' }
         ${ e ? `<span class="err-tip" title="${esc(item.message)}">⚠</span>` : '' }
       </div>
     </div>`;
@@ -945,7 +950,13 @@ function pollJob(item) {
         if (d.status === 'done') {
           item.status = 'done';
           clearInterval(tid); renderQueue(); checkDone();
-          toast('"' + (item.title || item.audFile.name) + '" concluído! 🎉', 'success');
+          toast('"' + (item.title || (item.audFile && item.audFile.name) || 'Item') + '" concluído! 🎉', 'success');
+          resolve();
+        } else if (d.status === 'cancelled') {
+          item.status = 'cancelled';
+          item.message = d.message || 'Cancelado';
+          clearInterval(tid); renderQueue(); checkDone();
+          toast('Geração cancelada', 'info');
           resolve();
         } else if (d.status === 'error') {
           failJob(item, d.message || 'Erro desconhecido');
@@ -962,6 +973,18 @@ function failJob(item, msg) {
   item.status = 'error'; item.message = msg;
   renderQueue(); checkDone();
   toast('Erro: ' + msg, 'error');
+}
+
+async function cancelItem(id) {
+  const item = queue.find(x => x.id === id);
+  if (!item || item.status !== 'running') return;
+  item.status = 'cancelling';
+  renderQueue();
+  if (item.jobId) {
+    try {
+      await fetch('/cancel/' + item.jobId, { method: 'POST' });
+    } catch(_) {}
+  }
 }
 
 function checkDone() {

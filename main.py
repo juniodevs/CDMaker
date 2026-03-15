@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import textwrap
 import argparse
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
@@ -369,6 +370,7 @@ def generate(
     workers:         int             = DEF_WORKERS,
     progress_cb:     Optional[Callable[[int, str], None]] = None,
     vertical:        bool            = False,
+    cancel_event:    Optional[threading.Event]              = None,
 ) -> None:
     print(f"\n▶  {Path(audio_path).name}" + (" [VERTICAL]" if vertical else ""))
     if vertical:
@@ -454,6 +456,8 @@ def generate(
 
     prebaked = []
     for i, disc_f in enumerate(disc_frames):
+        if cancel_event and cancel_event.is_set():
+            raise RuntimeError("__cdmaker_cancelled__")
         b = bg_f.copy()
         _blend(b, disc_f,   disc_x, disc_y)
         _blend(b, case_arr, cd_x,   cd_y)
@@ -463,6 +467,9 @@ def generate(
             progress_cb(46 + int(i / frames_per_rev * 6), f"Pre-bake {i+1}/{frames_per_rev}…")
 
     del bg_f, disc_frames
+
+    if cancel_event and cancel_event.is_set():
+        raise RuntimeError("__cdmaker_cancelled__")
 
     if progress_cb: progress_cb(52, "Pre-bake concluído…")
 
@@ -511,12 +518,17 @@ def generate(
 
     print(f"  ↳ {total_frames} frames @ {fps}fps · {_w} workers · preset={preset} · rpm={rpm}  →  {output_path}")
 
+    _cancelled = False
     BATCH  = max(fps, _w * 4)
     proc   = subprocess.Popen(ffcmd, stdin=subprocess.PIPE, bufsize=10 ** 7,
                                stderr=subprocess.DEVNULL)
     try:
         with ThreadPoolExecutor(max_workers=_w) as pool:
             for bs in range(0, total_frames, BATCH):
+                if cancel_event and cancel_event.is_set():
+                    _cancelled = True
+                    proc.kill()
+                    break
                 be     = min(bs + BATCH, total_frames)
                 frames = list(pool.map(render_frame, range(bs, be)))
                 for f in frames:
@@ -530,8 +542,12 @@ def generate(
         raise
     finally:
         proc.stdin.close()
-        rc = proc.wait()
+        proc.wait()
 
+    if _cancelled:
+        raise RuntimeError("__cdmaker_cancelled__")
+
+    rc = proc.returncode
     if rc != 0:
         raise RuntimeError(f"FFmpeg encerrou com código {rc}")
 
