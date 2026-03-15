@@ -1091,13 +1091,8 @@ async function editProject(pid) {
     } catch(e) {}
   }
   if (files.audio) {
-    try {
-      const r = await fetch(`/projects/${pid}/file/${files.audio}`);
-      const b = await r.blob();
-      curAud = new File([b], files.audio, {type: b.type});
-      const lbl = document.getElementById('audLabel');
-      lbl.textContent = files.audio; lbl.style.color = 'var(--gold)';
-    } catch(e) {}
+    const lbl = document.getElementById('audLabel');
+    lbl.textContent = files.audio; lbl.style.color = 'var(--gold)';
   }
   if (files.disc_image) {
     try {
@@ -1117,6 +1112,7 @@ async function editProject(pid) {
       lbl.innerHTML = files.bg_image; lbl.style.color = 'var(--gold)';
     } catch(e) {}
   }
+  schedulePreview();
   toast('Projeto carregado para edição', 'info');
   window.scrollTo({top:0, behavior:'smooth'});
 }
