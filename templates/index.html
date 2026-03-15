@@ -352,6 +352,14 @@ main{
   aspect-ratio:16/9;
   display:flex;align-items:center;justify-content:center;
   color:var(--dim);font-size:13px;flex-direction:column;gap:6px;
+  transition:aspect-ratio .3s;
+}
+#previewWrap.vertical .ph{
+  aspect-ratio:9/16;
+}
+#previewWrap.vertical{
+  max-width:340px;
+  margin-left:auto;margin-right:auto;
 }
 #previewSpin{
   position:absolute;top:8px;right:8px;
@@ -498,6 +506,17 @@ main{
       </button>
       <div id="optsBody" style="display:none;padding:16px 28px 22px;display:none">
         <div style="display:flex;flex-wrap:wrap;gap:14px 28px">
+
+          <!-- Formato -->
+          <div class="field" style="flex:1;min-width:130px">
+            <label>Formato</label>
+            <select id="oFormat" style="width:100%;background:var(--s1);border:1px solid var(--bd);
+                    border-radius:var(--rsm);padding:10px 12px;color:var(--txt);font:14px/1 inherit;outline:none"
+                    onchange="schedulePreview()">
+              <option value="horizontal" selected>Horizontal  (16:9 — YouTube)</option>
+              <option value="vertical">Vertical  (9:16 — TikTok / Shorts)</option>
+            </select>
+          </div>
 
           <!-- FPS -->
           <div class="field" style="flex:1;min-width:130px">
@@ -696,6 +715,12 @@ async function requestPreview() {
   const spin = document.getElementById('previewSpin');
   spin.style.display = '';
 
+  const isVertical = document.getElementById('oFormat').value === 'vertical';
+
+  // Atualiza classe do preview wrapper
+  const wrap = document.getElementById('previewWrap');
+  wrap.classList.toggle('vertical', isVertical);
+
   const fd = new FormData();
   fd.append('image', curImg);
   const t = document.getElementById('fTitle').value.trim();
@@ -708,6 +733,7 @@ async function requestPreview() {
   if (h) fd.append('handle', h);
   if (curDisc) fd.append('disc_image', curDisc);
   if (curBg)   fd.append('bg_image', curBg);
+  if (isVertical) fd.append('vertical', '1');
 
   try {
     const r = await fetch('/preview', { method:'POST', body:fd, signal:_previewCtrl.signal });
@@ -750,6 +776,7 @@ function addToQueue() {
     fps:      document.getElementById('oFps').value,
     rpm:      document.getElementById('oRpm').value,
     preset:   document.getElementById('oPreset').value,
+    vertical: document.getElementById('oFormat').value === 'vertical',
     imgUrl:   URL.createObjectURL(curImg),
     jobId:    null,
     status:   'pending',
@@ -787,6 +814,7 @@ function resetForm() {
   document.getElementById('fHandle').value = '';
   // reset preview
   const wrap = document.getElementById('previewWrap');
+  wrap.classList.remove('vertical');
   const img  = wrap.querySelector('img');
   if (img) img.remove();
   document.getElementById('previewPh').style.display = '';
@@ -828,7 +856,7 @@ function renderQueue() {
 
       <div class="card-info">
         <div class="card-title">${esc(item.title || item.audFile.name)}</div>
-        <div class="card-sub">${esc([item.artist, item.album].filter(Boolean).join(' · '))}</div>
+        <div class="card-sub">${esc([item.artist, item.album].filter(Boolean).join(' · '))}${item.vertical ? ' · <em style="color:var(--gold)">Vertical</em>' : ''}</div>
         <div class="progress-row">
           <div class="progress-bg">
             <div class="progress-fill ${fillClass}" style="width:${item.progress}%"></div>
@@ -887,6 +915,7 @@ async function startJob(item) {
   fd.append('fps',    item.fps);
   fd.append('rpm',    item.rpm);
   fd.append('preset', item.preset);
+  if (item.vertical) fd.append('vertical', '1');
   if (item.discFile) fd.append('disc_image', item.discFile);
   if (item.bgFile)   fd.append('bg_image',   item.bgFile);
 
@@ -1026,6 +1055,7 @@ async function saveProject() {
   fd.append('fps',    document.getElementById('oFps').value);
   fd.append('rpm',    document.getElementById('oRpm').value);
   fd.append('preset', document.getElementById('oPreset').value);
+  fd.append('vertical', document.getElementById('oFormat').value === 'vertical' ? 'true' : 'false');
   try {
     const r = await fetch('/projects', { method:'POST', body:fd });
     const d = await r.json();
@@ -1049,6 +1079,7 @@ async function editProject(pid) {
   if (p.fps)    document.getElementById('oFps').value    = p.fps;
   if (p.rpm)    document.getElementById('oRpm').value    = p.rpm;
   if (p.preset) document.getElementById('oPreset').value = p.preset;
+  document.getElementById('oFormat').value = (p.vertical === 'true' || p.vertical === true) ? 'vertical' : 'horizontal';
   // Carregar arquivos como blobs para curImg / curAud / etc
   const files = p.files || {};
   if (files.image) {
@@ -1116,6 +1147,7 @@ async function requeueProject(pid) {
     fps:       p.fps    || '30',
     rpm:       p.rpm    || '8',
     preset:    p.preset || 'fast',
+    vertical:  p.vertical === 'true' || p.vertical === true,
     imgUrl:    imgUrl,
     jobId:     null,
     status:    'pending',

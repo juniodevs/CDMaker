@@ -61,6 +61,8 @@ FFMPEG = _find_ffmpeg()
 
 VIDEO_W  = 1920
 VIDEO_H  = 1080
+VIDEO_V_W = 1080
+VIDEO_V_H = 1920
 DEF_FPS     = 30
 DEF_RPM     = 8.0    # RPM padrão visual (~7.5s por volta — suave para "now playing")
 DEF_PRESET  = "fast"
@@ -125,13 +127,14 @@ def read_tags(audio_path: str) -> dict:
 
 # ── Fundo borrado ────────────────────────────────────────────────────────────
 
-def make_background(img: Image.Image, is_custom: bool = False) -> np.ndarray:
+def make_background(img: Image.Image, W: int = VIDEO_W, H: int = VIDEO_H,
+                    is_custom: bool = False, vertical: bool = False) -> np.ndarray:
     """
     Redimensiona e escurece a imagem para usar como fundo.
     Se is_custom=True (fundo enviado pelo usuário), aplica processamento mais leve.
     Retorna array RGB uint8 (H x W x 3).
     """
-    bg = img.convert("RGB").resize((VIDEO_W, VIDEO_H), Image.LANCZOS)
+    bg = img.convert("RGB").resize((W, H), Image.LANCZOS)
     if is_custom:
         bg = bg.filter(ImageFilter.GaussianBlur(radius=6))
         bg = ImageEnhance.Brightness(bg).enhance(0.55)
@@ -140,10 +143,16 @@ def make_background(img: Image.Image, is_custom: bool = False) -> np.ndarray:
         bg = ImageEnhance.Brightness(bg).enhance(0.30)
     arr = np.array(bg, dtype=np.float32)
 
-    # Vinheta lateral direita — gradiente escurecendo a área do texto
-    xs   = np.linspace(0.0, 1.0, VIDEO_W, dtype=np.float32)
-    mask = np.clip((xs - 0.30) / 0.70, 0.0, 1.0) ** 1.8 * 130.0
-    arr  = np.clip(arr - mask[np.newaxis, :, np.newaxis], 0, 255)
+    if vertical:
+        # Vinheta inferior — gradiente escurecendo a área do texto/waveform
+        ys   = np.linspace(0.0, 1.0, H, dtype=np.float32)
+        mask = np.clip((ys - 0.35) / 0.65, 0.0, 1.0) ** 1.8 * 120.0
+        arr  = np.clip(arr - mask[:, np.newaxis, np.newaxis], 0, 255)
+    else:
+        # Vinheta lateral direita — gradiente escurecendo a área do texto
+        xs   = np.linspace(0.0, 1.0, W, dtype=np.float32)
+        mask = np.clip((xs - 0.30) / 0.70, 0.0, 1.0) ** 1.8 * 130.0
+        arr  = np.clip(arr - mask[np.newaxis, :, np.newaxis], 0, 255)
     return arr.astype(np.uint8)
 
 
@@ -318,7 +327,8 @@ def make_disc_rotation_frames(disc_pil: Image.Image,
 # ── Camada de texto (transparente, composta por último) ──────────────────────
 
 def make_text_layer(info: dict, handle: Optional[str],
-                    tx: int, ty: int, W: int, H: int) -> np.ndarray:
+                    tx: int, ty: int, W: int, H: int,
+                    vertical: bool = False) -> np.ndarray:
     """
     Cria uma camada RGBA transparente com apenas o texto desenhado.
     Composta POR ÚLTIMO no pre-bake para o texto sempre ficar visível
@@ -327,24 +337,53 @@ def make_text_layer(info: dict, handle: Optional[str],
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw  = ImageDraw.Draw(layer)
 
-    f_title  = _load_font(72, bold=True)
-    f_artist = _load_font(44)
-    f_album  = _load_font(36)
-    f_handle = _load_font(28)
+    if vertical:
+        f_title  = _load_font(62, bold=True)
+        f_artist = _load_font(40)
+        f_album  = _load_font(32)
+        f_handle = _load_font(26)
 
-    lines = textwrap.wrap(info["title"], width=20)[:2]
-    for li, line in enumerate(lines):
-        draw.text((tx, ty + li * 88), line, font=f_title, fill=C_TITLE)
+        lines = textwrap.wrap(info["title"], width=18)[:2]
+        for li, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=f_title)
+            tw   = bbox[2] - bbox[0]
+            draw.text(((W - tw) // 2, ty + li * 78), line, font=f_title, fill=C_TITLE)
 
-    y_after = ty + len(lines) * 88 + 20
+        y_after = ty + len(lines) * 78 + 22
 
-    if info["artist"]:
-        draw.text((tx, y_after),       info["artist"], font=f_artist, fill=C_ARTIST)
-    if info["album"]:
-        draw.text((tx, y_after + 62),  info["album"],  font=f_album,  fill=C_ALBUM)
+        if info["artist"]:
+            bbox = draw.textbbox((0, 0), info["artist"], font=f_artist)
+            tw   = bbox[2] - bbox[0]
+            draw.text(((W - tw) // 2, y_after), info["artist"], font=f_artist, fill=C_ARTIST)
+        if info["album"]:
+            bbox = draw.textbbox((0, 0), info["album"], font=f_album)
+            tw   = bbox[2] - bbox[0]
+            draw.text(((W - tw) // 2, y_after + 56), info["album"], font=f_album, fill=C_ALBUM)
 
-    if handle:
-        draw.text((tx, H - 72), f"/ {handle}", font=f_handle, fill=C_HANDLE)
+        if handle:
+            htxt = f"/ {handle}"
+            bbox = draw.textbbox((0, 0), htxt, font=f_handle)
+            tw   = bbox[2] - bbox[0]
+            draw.text(((W - tw) // 2, H - 72), htxt, font=f_handle, fill=C_HANDLE)
+    else:
+        f_title  = _load_font(72, bold=True)
+        f_artist = _load_font(44)
+        f_album  = _load_font(36)
+        f_handle = _load_font(28)
+
+        lines = textwrap.wrap(info["title"], width=20)[:2]
+        for li, line in enumerate(lines):
+            draw.text((tx, ty + li * 88), line, font=f_title, fill=C_TITLE)
+
+        y_after = ty + len(lines) * 88 + 20
+
+        if info["artist"]:
+            draw.text((tx, y_after),       info["artist"], font=f_artist, fill=C_ARTIST)
+        if info["album"]:
+            draw.text((tx, y_after + 62),  info["album"],  font=f_album,  fill=C_ALBUM)
+
+        if handle:
+            draw.text((tx, H - 72), f"/ {handle}", font=f_handle, fill=C_HANDLE)
 
     return np.array(layer)
 
@@ -360,13 +399,17 @@ def generate_preview(
     handle:          Optional[str] = None,
     disc_image_path: Optional[str] = None,
     bg_image_path:   Optional[str] = None,
+    vertical:        bool          = False,
 ) -> bytes:
     """
     Gera um único frame PNG do vídeo (sem áudio, sem rotação).
     Retorna os bytes do PNG em memória.
     """
     import io
-    W, H = VIDEO_W, VIDEO_H
+    if vertical:
+        W, H = VIDEO_V_W, VIDEO_V_H
+    else:
+        W, H = VIDEO_W, VIDEO_H
 
     img      = Image.open(image_path)
     disc_src = Image.open(disc_image_path) if disc_image_path else img
@@ -374,19 +417,28 @@ def generate_preview(
 
     meta = {"title": title or Path(image_path).stem, "artist": artist or "", "album": album or ""}
 
-    # Geometria (mesma de generate())
-    case_h = int(H * 0.76)
-    cd_x   = int(W * 0.035)
-    cd_y   = (H - case_h) // 2 - 8
-    disc_d = int(case_h * 0.82)
-    disc_x = cd_x + case_h - disc_d // 2 + 20
-    disc_y = (H - disc_d) // 2 + 10
-    tx, ty = int(W * 0.52), int(H * 0.21)
+    # Geometria
+    if vertical:
+        case_h = int(W * 0.68)
+        cd_x   = (W - (case_h + 30)) // 2
+        cd_y   = int(H * 0.06)
+        disc_d = int(case_h * 0.65)
+        disc_x = (W - disc_d) // 2
+        disc_y = cd_y + case_h + 30 - disc_d // 2
+        tx, ty = 0, disc_y + disc_d + 20
+    else:
+        case_h = int(H * 0.76)
+        cd_x   = int(W * 0.035)
+        cd_y   = (H - case_h) // 2 - 8
+        disc_d = int(case_h * 0.82)
+        disc_x = cd_x + case_h - disc_d // 2 + 20
+        disc_y = (H - disc_d) // 2 + 10
+        tx, ty = int(W * 0.52), int(H * 0.21)
 
-    bg_arr   = make_background(bg_src, is_custom=bool(bg_image_path))
+    bg_arr   = make_background(bg_src, W, H, is_custom=bool(bg_image_path), vertical=vertical)
     disc_pil = make_cd_disc(disc_src, disc_d)
     case_arr = np.array(make_cd_case(img, case_h))
-    text_arr = make_text_layer(meta, handle, tx, ty, W, H)
+    text_arr = make_text_layer(meta, handle, tx, ty, W, H, vertical=vertical)
 
     b = bg_arr.astype(np.float32)
     _blend(b, np.array(disc_pil), disc_x, disc_y)
@@ -414,9 +466,13 @@ def generate(
     preset:          str             = DEF_PRESET,
     workers:         int             = DEF_WORKERS,
     progress_cb:     Optional[Callable[[int, str], None]] = None,
+    vertical:        bool            = False,
 ) -> None:
-    print(f"\n▶  {Path(audio_path).name}")
-    W, H   = VIDEO_W, VIDEO_H
+    print(f"\n▶  {Path(audio_path).name}" + (" [VERTICAL]" if vertical else ""))
+    if vertical:
+        W, H = VIDEO_V_W, VIDEO_V_H
+    else:
+        W, H = VIDEO_W, VIDEO_H
     _w     = workers if workers > 0 else min(os.cpu_count() or 4, 8)
 
     # ── Assets ──────────────────────────────────────────────────────────────
@@ -446,29 +502,42 @@ def generate(
     if progress_cb: progress_cb(20, "Espectro analisado…")
 
     # ── Geometria ────────────────────────────────────────────────────────────
-    case_h = int(H * 0.76)
-    cd_x   = int(W * 0.035)
-    cd_y   = (H - case_h) // 2 - 8
-    disc_d = int(case_h * 0.82)
-    disc_x = cd_x + case_h - disc_d // 2 + 20
-    disc_y = (H - disc_d) // 2 + 10
-    wf_x   = int(W * 0.52)
-    wf_y   = int(H * 0.615)
-    wf_w   = int(W * 0.44)
-    wf_h   = int(H * 0.135)
-    tx, ty = int(W * 0.52), int(H * 0.21)
+    if vertical:
+        case_h = int(W * 0.68)
+        cd_x   = (W - (case_h + 30)) // 2
+        cd_y   = int(H * 0.06)
+        disc_d = int(case_h * 0.65)
+        disc_x = (W - disc_d) // 2
+        disc_y = cd_y + case_h + 30 - disc_d // 2
+        tx, ty = 0, disc_y + disc_d + 20
+        wf_x   = int(W * 0.075)
+        wf_y   = int(H * 0.82)
+        wf_w   = int(W * 0.85)
+        wf_h   = int(H * 0.055)
+    else:
+        case_h = int(H * 0.76)
+        cd_x   = int(W * 0.035)
+        cd_y   = (H - case_h) // 2 - 8
+        disc_d = int(case_h * 0.82)
+        disc_x = cd_x + case_h - disc_d // 2 + 20
+        disc_y = (H - disc_d) // 2 + 10
+        wf_x   = int(W * 0.52)
+        wf_y   = int(H * 0.615)
+        wf_w   = int(W * 0.44)
+        wf_h   = int(H * 0.135)
+        tx, ty = int(W * 0.52), int(H * 0.21)
 
     # ── Pré-renderização (tudo em float32 para blending rápido) ──────────────
     print("  ↳ Preparando visuais…")
 
-    bg_img   = Image.fromarray(make_background(bg_src, is_custom=bool(bg_image_path))).convert("RGBA")
+    bg_img   = Image.fromarray(make_background(bg_src, W, H, is_custom=bool(bg_image_path), vertical=vertical)).convert("RGBA")
     disc_pil = make_cd_disc(disc_src, disc_d)
     case_arr = np.array(make_cd_case(img, case_h))                  # capa (jewel case)
 
     # Fundo base como float32 (sem texto — texto será composto por último)
     bg_f     = np.array(bg_img.convert("RGB"), dtype=np.float32)
     # Camada de texto transparente (RGBA) — sempre composta sobre disco e case
-    text_arr = make_text_layer(meta, handle, tx, ty, W, H)
+    text_arr = make_text_layer(meta, handle, tx, ty, W, H, vertical=vertical)
 
     # Grade da waveform (constantes pre-computadas, reutilizadas por render_frame)
     frame_amps = amps                                               # alias claro
@@ -589,7 +658,8 @@ def generate(
 
 def batch_generate(folder: str, handle: Optional[str] = None,
                    fps: int = DEF_FPS, rpm: float = DEF_RPM,
-                   preset: str = DEF_PRESET, workers: int = DEF_WORKERS) -> None:
+                   preset: str = DEF_PRESET, workers: int = DEF_WORKERS,
+                   vertical: bool = False) -> None:
     """
     Processa toda uma pasta.
     Para cada áudio, procura uma imagem de mesmo nome-base; se não encontrar,
@@ -621,7 +691,8 @@ def batch_generate(folder: str, handle: Optional[str] = None,
 
         out = str(folder_p / "output" / f"{aud.stem}.mp4")
         generate(str(img), str(aud), out, handle=handle,
-                 fps=fps, rpm=rpm, preset=preset, workers=workers)
+                 fps=fps, rpm=rpm, preset=preset, workers=workers,
+                 vertical=vertical)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -661,6 +732,8 @@ def main() -> None:
                     help=f"Preset FFmpeg x264 (padrão={DEF_PRESET})")
     ap.add_argument("--workers", type=int, default=DEF_WORKERS,
                     help="Threads para gerar frames (0=auto)")
+    ap.add_argument("--vertical", action="store_true",
+                    help="Gera vídeo vertical 1080×1920 (TikTok / Shorts)")
 
     args = ap.parse_args()
 
@@ -668,7 +741,8 @@ def main() -> None:
     if args.batch:
         batch_generate(args.batch, handle=args.handle,
                        fps=args.fps, rpm=args.rpm,
-                       preset=args.preset, workers=args.workers)
+                       preset=args.preset, workers=args.workers,
+                       vertical=args.vertical)
         return
 
     # ── Modo individual ───────────────────────────────────────────────────────
@@ -696,6 +770,7 @@ def main() -> None:
         rpm=args.rpm,
         preset=args.preset,
         workers=args.workers,
+        vertical=args.vertical,
     )
 
 

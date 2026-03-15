@@ -111,6 +111,8 @@ def start_generate():
     if preset not in ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"):
         preset = DEF_PRESET
 
+    vertical = request.form.get("vertical", "").lower() in ("1", "true", "on")
+
     with _lock:
         _jobs[job_id] = {"status": "running", "progress": 0, "message": "Iniciando…"}
 
@@ -126,7 +128,7 @@ def start_generate():
                 title=title, artist=artist, album=album, handle=handle,
                 disc_image_path=disc_img_path, bg_image_path=bg_img_path,
                 fps=fps, rpm=rpm, preset=preset,
-                progress_cb=_cb,
+                progress_cb=_cb, vertical=vertical,
             )
             _set(job_id, status="done", progress=100, message="Concluído!")
         except Exception as exc:
@@ -212,11 +214,13 @@ def preview():
         artist = (request.form.get("artist", "") or "").strip() or None
         album  = (request.form.get("album",  "") or "").strip() or None
         handle = (request.form.get("handle", "") or "").strip() or None
+        vertical = request.form.get("vertical", "").lower() in ("1", "true", "on")
 
         png_bytes = generate_preview(
             str(img_path),
             title=title, artist=artist, album=album, handle=handle,
             disc_image_path=disc_path, bg_image_path=bg_path,
+            vertical=vertical,
         )
         return Response(png_bytes, mimetype="image/png")
     except Exception as exc:
@@ -294,6 +298,7 @@ def save_project():
         "fps":    request.form.get("fps",    str(DEF_FPS)),
         "rpm":    request.form.get("rpm",    str(DEF_RPM)),
         "preset": request.form.get("preset", DEF_PRESET),
+        "vertical": request.form.get("vertical", "false"),
         "files":  files,
     }
     _write_manifest(pid, manifest)
@@ -381,6 +386,8 @@ def generate_from_project(pid: str):
     if preset not in ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"):
         preset = DEF_PRESET
 
+    vertical = str(manifest.get("vertical", "false")).lower() in ("1", "true", "on")
+
     job_id = uuid.uuid4().hex[:12]
     with _lock:
         _jobs[job_id] = {"status": "running", "progress": 0, "message": "Iniciando…"}
@@ -395,7 +402,7 @@ def generate_from_project(pid: str):
                 title=title, artist=artist, album=album, handle=handle,
                 disc_image_path=disc_path, bg_image_path=bg_path,
                 fps=fps, rpm=rpm, preset=preset,
-                progress_cb=_cb,
+                progress_cb=_cb, vertical=vertical,
             )
             _set(job_id, status="done", progress=100, message="Concluído!")
         except Exception as exc:
