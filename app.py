@@ -1,12 +1,3 @@
-"""
-CDMaker — Servidor Web
-======================
-Inicia o front-end e processa as requisições de geração de vídeo.
-
-Uso:
-    python app.py
-    Abra:  http://localhost:5000
-"""
 
 import json
 import shutil
@@ -18,9 +9,8 @@ from flask import Flask, jsonify, render_template, request, send_file, Response
 
 from main import generate, generate_preview, DEF_FPS, DEF_RPM, DEF_PRESET
 
-# ── Config ────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 400 * 1024 * 1024  # 400 MB (áudios longos)
+app.config["MAX_CONTENT_LENGTH"] = 400 * 1024 * 1024
 
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("output")
@@ -35,22 +25,16 @@ _lock = threading.Lock()
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 ALLOWED_AUDIO = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac"}
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 def _set(job_id: str, **kw) -> None:
     with _lock:
         _jobs[job_id].update(kw)
 
-
 def _valid_id(job_id: str) -> bool:
     return isinstance(job_id, str) and job_id.isalnum() and 4 <= len(job_id) <= 32
 
-
-# ── Rotas ─────────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html")
-
 
 @app.route("/generate", methods=["POST"])
 def start_generate():
@@ -77,7 +61,6 @@ def start_generate():
     img_f.save(str(img_path))
     aud_f.save(str(aud_path))
 
-    # Imagens opcionais: arte do disco e fundo personalizado
     disc_img_path = None
     bg_img_path   = None
     for field, prefix in (("disc_image", "disc"), ("bg_image", "bg")):
@@ -139,7 +122,6 @@ def start_generate():
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"job_id": job_id})
 
-
 @app.route("/status/<job_id>")
 def job_status(job_id: str):
     if not _valid_id(job_id):
@@ -149,7 +131,6 @@ def job_status(job_id: str):
     if not job:
         return jsonify({"status": "not_found"}), 404
     return jsonify(job)
-
 
 @app.route("/download/<job_id>")
 def download(job_id: str):
@@ -162,7 +143,7 @@ def download(job_id: str):
 
     out = (OUTPUT_DIR / f"{job_id}.mp4").resolve()
     try:
-        out.relative_to(OUTPUT_DIR.resolve())   # path-traversal guard
+        out.relative_to(OUTPUT_DIR.resolve())
     except ValueError:
         return jsonify({"error": "Forbidden"}), 403
 
@@ -176,13 +157,8 @@ def download(job_id: str):
         mimetype="video/mp4",
     )
 
-
-# ── Preview (gera frame estático PNG) ─────────────────────────────────────────
-
 @app.route("/preview", methods=["POST"])
 def preview():
-    """Gera uma imagem de preview PNG a partir das imagens + metadados.
-    Requer pelo menos 'image' (a capa). Retorna image/png."""
     if "image" not in request.files:
         return jsonify({"error": "Envie ao menos a imagem de capa"}), 400
 
@@ -228,12 +204,8 @@ def preview():
     finally:
         shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
-
-# ── Projetos (persistência) ──────────────────────────────────────────────────
-
 def _proj_manifest(pid: str) -> Path:
     return PROJECTS_DIR / pid / "manifest.json"
-
 
 def _read_manifest(pid: str) -> dict | None:
     p = _proj_manifest(pid)
@@ -241,16 +213,13 @@ def _read_manifest(pid: str) -> dict | None:
         return json.loads(p.read_text("utf-8"))
     return None
 
-
 def _write_manifest(pid: str, data: dict) -> None:
     p = _proj_manifest(pid)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
 
-
 @app.route("/projects", methods=["GET"])
 def list_projects():
-    """Lista todos os projetos salvos."""
     projects = []
     for d in sorted(PROJECTS_DIR.iterdir()):
         if d.is_dir() and (d / "manifest.json").exists():
@@ -258,10 +227,8 @@ def list_projects():
             projects.append(m)
     return jsonify(projects)
 
-
 @app.route("/projects", methods=["POST"])
 def save_project():
-    """Salva ou atualiza um projeto (imagens + metadados)."""
     pid = (request.form.get("id", "") or "").strip()
     if not pid or not pid.isalnum() or len(pid) > 32:
         pid = uuid.uuid4().hex[:12]
@@ -269,7 +236,6 @@ def save_project():
     proj_dir = PROJECTS_DIR / pid
     proj_dir.mkdir(parents=True, exist_ok=True)
 
-    # Salva arquivos enviados
     file_map = {}
     for field in ("image", "audio", "disc_image", "bg_image"):
         f = request.files.get(field)
@@ -277,14 +243,13 @@ def save_project():
             ext  = Path(f.filename).suffix.lower()
             safe = {"image": "cover", "audio": "audio",
                     "disc_image": "disc", "bg_image": "bg"}[field]
-            # Remove arquivo anterior de extensão diferente
+
             for old in proj_dir.glob(f"{safe}.*"):
                 old.unlink(missing_ok=True)
             dest = proj_dir / f"{safe}{ext}"
             f.save(str(dest))
             file_map[field] = f"{safe}{ext}"
 
-    # Lê manifest existente para mesclar
     existing = _read_manifest(pid) or {}
     files = existing.get("files", {})
     files.update(file_map)
@@ -304,7 +269,6 @@ def save_project():
     _write_manifest(pid, manifest)
     return jsonify(manifest)
 
-
 @app.route("/projects/<pid>", methods=["DELETE"])
 def delete_project(pid: str):
     if not _valid_id(pid):
@@ -318,13 +282,11 @@ def delete_project(pid: str):
         shutil.rmtree(str(proj_dir), ignore_errors=True)
     return jsonify({"ok": True})
 
-
 @app.route("/projects/<pid>/file/<fname>")
 def project_file(pid: str, fname: str):
-    """Serve um arquivo do projeto (capa, áudio, disco, fundo)."""
     if not _valid_id(pid):
         return jsonify({"error": "invalid"}), 400
-    # Sanitize filename
+
     safe_name = Path(fname).name
     fpath = (PROJECTS_DIR / pid / safe_name).resolve()
     try:
@@ -335,10 +297,8 @@ def project_file(pid: str, fname: str):
         return jsonify({"error": "Not found"}), 404
     return send_file(str(fpath))
 
-
 @app.route("/projects/<pid>/generate", methods=["POST"])
 def generate_from_project(pid: str):
-    """Inicia geração de vídeo a partir de um projeto salvo."""
     if not _valid_id(pid):
         return jsonify({"error": "invalid"}), 400
     manifest = _read_manifest(pid)
@@ -411,8 +371,6 @@ def generate_from_project(pid: str):
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"job_id": job_id})
 
-
-# ── Entry ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("\n  🎵  CDMaker  →  http://localhost:5000\n")
     app.run(debug=False, host="0.0.0.0", port=5000, threaded=True)
