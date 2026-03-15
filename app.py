@@ -3,6 +3,7 @@ import json
 import shutil
 import threading
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file, Response
@@ -241,10 +242,11 @@ def _write_manifest(pid: str, data: dict) -> None:
 @app.route("/projects", methods=["GET"])
 def list_projects():
     projects = []
-    for d in sorted(PROJECTS_DIR.iterdir()):
+    for d in PROJECTS_DIR.iterdir():
         if d.is_dir() and (d / "manifest.json").exists():
             m = json.loads((d / "manifest.json").read_text("utf-8"))
             projects.append(m)
+    projects.sort(key=lambda p: p.get("updated_at", p.get("id", "")), reverse=True)
     return jsonify(projects)
 
 @app.route("/projects", methods=["POST"])
@@ -274,17 +276,20 @@ def save_project():
     files = existing.get("files", {})
     files.update(file_map)
 
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest = {
-        "id":     pid,
-        "title":  (request.form.get("title",  "") or "").strip(),
-        "artist": (request.form.get("artist", "") or "").strip(),
-        "album":  (request.form.get("album",  "") or "").strip(),
-        "handle": (request.form.get("handle", "") or "").strip(),
-        "fps":    request.form.get("fps",    str(DEF_FPS)),
-        "rpm":    request.form.get("rpm",    str(DEF_RPM)),
-        "preset": request.form.get("preset", DEF_PRESET),
-        "vertical": request.form.get("vertical", "false"),
-        "files":  files,
+        "id":         pid,
+        "title":      (request.form.get("title",  "") or "").strip(),
+        "artist":     (request.form.get("artist", "") or "").strip(),
+        "album":      (request.form.get("album",  "") or "").strip(),
+        "handle":     (request.form.get("handle", "") or "").strip(),
+        "fps":        request.form.get("fps",    str(DEF_FPS)),
+        "rpm":        request.form.get("rpm",    str(DEF_RPM)),
+        "preset":     request.form.get("preset", DEF_PRESET),
+        "vertical":   request.form.get("vertical", "false"),
+        "files":      files,
+        "created_at": existing.get("created_at", now),
+        "updated_at": now,
     }
     _write_manifest(pid, manifest)
     return jsonify(manifest)
@@ -301,6 +306,21 @@ def delete_project(pid: str):
     if proj_dir.exists():
         shutil.rmtree(str(proj_dir), ignore_errors=True)
     return jsonify({"ok": True})
+
+@app.route("/projects/<pid>", methods=["PATCH"])
+def patch_project(pid: str):
+    if not _valid_id(pid):
+        return jsonify({"error": "invalid"}), 400
+    existing = _read_manifest(pid)
+    if not existing:
+        return jsonify({"error": "not found"}), 404
+    data = request.get_json(silent=True) or {}
+    for key in ("title", "artist", "album", "handle", "fps", "rpm", "preset", "vertical"):
+        if key in data:
+            existing[key] = str(data[key])
+    existing["updated_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_manifest(pid, existing)
+    return jsonify(existing)
 
 @app.route("/projects/<pid>/file/<fname>")
 def project_file(pid: str, fname: str):

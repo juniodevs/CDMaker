@@ -379,10 +379,42 @@ main{
 }
 .proj-card:last-child{border-bottom:none}
 .proj-card:hover{background:rgba(255,255,255,.02)}
+.proj-card.editing{
+  background:rgba(255,215,0,.04);
+  border-left:3px solid var(--gold);
+  padding-left:19px;
+}
 .proj-meta{flex:1;min-width:0}
 .proj-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.proj-sub{font-size:12px;color:var(--muted)}
-.proj-actions{display:flex;gap:6px;flex-shrink:0}
+.proj-sub{font-size:12px;color:var(--muted);margin-bottom:5px}
+.proj-assets{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.asset-tag{
+  display:inline-flex;align-items:center;gap:3px;
+  font-size:10px;padding:2px 7px;border-radius:99px;
+  background:var(--gold-bg);color:var(--gold);
+  border:1px solid rgba(255,215,0,.18);
+}
+.proj-actions{display:flex;gap:6px;flex-shrink:0;align-items:center}
+
+/* ── Edit Mode Banner ─────────────────────────────── */
+.edit-banner{
+  display:none;align-items:center;gap:10px;
+  margin-top:10px;
+  padding:10px 14px;
+  background:var(--gold-bg);
+  border:1px solid rgba(255,215,0,.25);
+  border-radius:var(--rsm);
+  font-size:13px;color:var(--gold);
+}
+.edit-banner.visible{display:flex}
+.edit-banner strong{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.edit-discard{
+  background:none;border:1px solid rgba(255,215,0,.3);
+  color:var(--muted);border-radius:var(--rsm);
+  font:12px/1 inherit;padding:5px 10px;cursor:pointer;
+  transition:all .15s;white-space:nowrap;flex-shrink:0;
+}
+.edit-discard:hover{background:rgba(255,255,255,.06);color:var(--txt)}
 
 /* ── Responsive ─────────────────────────────────── */
 @media(max-width:720px){
@@ -484,6 +516,11 @@ main{
           <button class="btn btn-ghost" id="saveBtn" onclick="saveProject()">
             💾 Salvar Projeto
           </button>
+        </div>
+        <div class="edit-banner" id="editBanner">
+          <span>✏️</span>
+          <strong id="editBannerText">Editando projeto</strong>
+          <button class="edit-discard" onclick="discardEdit()">✕ Descartar</button>
         </div>
 
         <!-- Live Preview -->
@@ -606,6 +643,9 @@ let curBg    = null;   // File (optional)
 let editingProjectId = null;  // id de projeto em edição
 let _previewTimer = null;
 let _previewCtrl  = null;     // AbortController
+let _imgFromServer  = false;  // cover carregada do servidor (não alterada pelo usuário)
+let _discFromServer = false;  // disc carregada do servidor
+let _bgFromServer   = false;  // bg carregada do servidor
 
 /* ── Drop zones setup ──────────────────────────── */
 function setupZone(el, onFile) {
@@ -654,6 +694,7 @@ function setImg(file) {
     toast('Formato de imagem não suportado', 'error'); return;
   }
   curImg = file;
+  _imgFromServer = false;
   const url = URL.createObjectURL(file);
   const cov  = document.getElementById('cdCover');
   cov.innerHTML = '';
@@ -684,6 +725,7 @@ function setDisc(file) {
     toast('Formato de imagem não suportado', 'error'); return;
   }
   curDisc = file;
+  _discFromServer = false;
   const lbl = document.getElementById('discLabel');
   lbl.innerHTML = (file.name.length > 26 ? file.name.slice(0,24)+'…' : file.name);
   lbl.style.color = 'var(--gold)';
@@ -697,6 +739,7 @@ function setBg(file) {
     toast('Formato de imagem não suportado', 'error'); return;
   }
   curBg = file;
+  _bgFromServer = false;
   const lbl = document.getElementById('bgLabel');
   lbl.innerHTML = (file.name.length > 26 ? file.name.slice(0,24)+'…' : file.name);
   lbl.style.color = 'var(--gold)';
@@ -820,6 +863,8 @@ function resetForm() {
   const img  = wrap.querySelector('img');
   if (img) img.remove();
   document.getElementById('previewPh').style.display = '';
+  _imgFromServer = false; _discFromServer = false; _bgFromServer = false;
+  updateEditBanner();
 }
 
 function removeItem(id) {
@@ -1026,6 +1071,26 @@ function esc(str) {
 /* ── Projects (persistência) ───────────────────── */
 let savedProjects = [];
 
+function updateEditBanner() {
+  const banner  = document.getElementById('editBanner');
+  const saveBtn = document.getElementById('saveBtn');
+  if (editingProjectId) {
+    const p    = savedProjects.find(x => x.id === editingProjectId);
+    const name = p ? (p.title || p.files?.audio || editingProjectId) : editingProjectId;
+    document.getElementById('editBannerText').textContent = 'Editando: ' + name;
+    banner.classList.add('visible');
+    saveBtn.innerHTML = '💾 Atualizar Projeto';
+  } else {
+    banner.classList.remove('visible');
+    saveBtn.innerHTML = '💾 Salvar Projeto';
+  }
+  renderProjects();
+}
+
+function discardEdit() {
+  resetForm();
+}
+
 async function loadProjects() {
   try {
     const r = await fetch('/projects');
@@ -1044,47 +1109,92 @@ function renderProjects() {
     const coverFile = p.files?.image;
     const thumbUrl  = coverFile ? `/projects/${esc(p.id)}/file/${esc(coverFile)}` : '';
     const sub = [p.artist, p.album].filter(Boolean).join(' · ');
+    const isEditing = editingProjectId === p.id;
+    const assets = [
+      p.files?.disc_image ? '💿 Disco' : '',
+      p.files?.bg_image   ? '🌄 Fundo' : '',
+    ].filter(Boolean);
+    const updatedLabel = p.updated_at
+      ? new Date(p.updated_at).toLocaleDateString('pt-BR', {day:'2-digit',month:'short',year:'numeric'})
+      : '';
     return `
-    <div class="proj-card">
+    <div class="proj-card${isEditing ? ' editing' : ''}" id="pcard-${esc(p.id)}">
       <div class="mini-case">
         <div class="mini-spine"></div>
         ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : '<div style="flex:1;background:#181818"></div>'}
       </div>
       <div class="proj-meta">
-        <div class="proj-title">${esc(p.title || p.files?.audio || 'Sem título')}</div>
-        <div class="proj-sub">${esc(sub)}</div>
+        <div class="proj-title">${esc(p.title || 'Sem título')}${isEditing ? ' <span style="font-size:10px;color:var(--gold);font-weight:400">● editando</span>' : ''}</div>
+        <div class="proj-sub">${esc(sub || (p.files?.audio || ''))}${updatedLabel ? ` <span style="color:var(--dim)">· ${updatedLabel}</span>` : ''}</div>
+        ${assets.length ? `<div class="proj-assets">${assets.map(a=>`<span class="asset-tag">${a}</span>`).join('')}</div>` : ''}
       </div>
       <div class="proj-actions">
-        <button class="btn btn-ghost" onclick="editProject('${esc(p.id)}')" title="Editar">✏️</button>
-        <button class="btn btn-ghost" onclick="requeueProject('${esc(p.id)}')" title="Adicionar à Fila">🔄</button>
-        <button class="btn btn-ghost" onclick="deleteProject('${esc(p.id)}')" title="Excluir" style="color:var(--err)">✕</button>
+        <button class="btn btn-ghost" onclick="editProject('${esc(p.id)}')" style="font-size:12.5px;padding:7px 12px">✏️ Editar</button>
+        <button class="btn btn-gold" onclick="requeueProject('${esc(p.id)}')" style="font-size:12.5px;padding:7px 12px">▶ Gerar</button>
+        <button class="btn btn-ghost" onclick="deleteProject('${esc(p.id)}')" style="color:var(--err);padding:7px 10px" title="Excluir">✕</button>
       </div>
     </div>`;
   }).join('');
 }
 
 async function saveProject() {
-  if (!curImg) { toast('Selecione ao menos a capa!', 'error'); return; }
+  const hasNewImg  = curImg  && !_imgFromServer;
+  const hasNewDisc = curDisc && !_discFromServer;
+  const hasNewBg   = curBg   && !_bgFromServer;
+  const anyFileChanged = hasNewImg || !!curAud || hasNewDisc || hasNewBg;
+
+  // Editando e só metadados mudaram → PATCH leve, sem re-upload de arquivos
+  if (editingProjectId && !anyFileChanged) {
+    const payload = {
+      title:    document.getElementById('fTitle').value.trim(),
+      artist:   document.getElementById('fArtist').value.trim(),
+      album:    document.getElementById('fAlbum').value.trim(),
+      handle:   document.getElementById('fHandle').value.trim(),
+      fps:      document.getElementById('oFps').value,
+      rpm:      document.getElementById('oRpm').value,
+      preset:   document.getElementById('oPreset').value,
+      vertical: document.getElementById('oFormat').value === 'vertical' ? 'true' : 'false',
+    };
+    try {
+      const r = await fetch(`/projects/${editingProjectId}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (!r.ok) { toast(d.error || 'Erro ao salvar', 'error'); return; }
+      toast('Projeto atualizado!', 'success');
+      loadProjects();
+    } catch(e) { toast('Erro de conexão', 'error'); }
+    return;
+  }
+
+  if (!editingProjectId && !curImg) {
+    toast('Selecione ao menos a capa!', 'error'); return;
+  }
+
   const fd = new FormData();
   if (editingProjectId) fd.append('id', editingProjectId);
-  fd.append('image', curImg);
-  if (curAud)  fd.append('audio', curAud);
-  if (curDisc) fd.append('disc_image', curDisc);
-  if (curBg)   fd.append('bg_image', curBg);
-  fd.append('title',  document.getElementById('fTitle').value.trim());
-  fd.append('artist', document.getElementById('fArtist').value.trim());
-  fd.append('album',  document.getElementById('fAlbum').value.trim());
-  fd.append('handle', document.getElementById('fHandle').value.trim());
-  fd.append('fps',    document.getElementById('oFps').value);
-  fd.append('rpm',    document.getElementById('oRpm').value);
-  fd.append('preset', document.getElementById('oPreset').value);
+  if (hasNewImg)  fd.append('image',      curImg);
+  if (curAud)     fd.append('audio',      curAud);
+  if (hasNewDisc) fd.append('disc_image', curDisc);
+  if (hasNewBg)   fd.append('bg_image',   curBg);
+  fd.append('title',    document.getElementById('fTitle').value.trim());
+  fd.append('artist',   document.getElementById('fArtist').value.trim());
+  fd.append('album',    document.getElementById('fAlbum').value.trim());
+  fd.append('handle',   document.getElementById('fHandle').value.trim());
+  fd.append('fps',      document.getElementById('oFps').value);
+  fd.append('rpm',      document.getElementById('oRpm').value);
+  fd.append('preset',   document.getElementById('oPreset').value);
   fd.append('vertical', document.getElementById('oFormat').value === 'vertical' ? 'true' : 'false');
   try {
+    const wasNew = !editingProjectId;
     const r = await fetch('/projects', { method:'POST', body:fd });
     const d = await r.json();
     if (!r.ok) { toast(d.error || 'Erro ao salvar', 'error'); return; }
     editingProjectId = d.id;
-    toast('Projeto salvo!', 'success');
+    updateEditBanner();
+    toast(wasNew ? 'Projeto salvo!' : 'Projeto atualizado!', 'success');
     loadProjects();
   } catch(e) { toast('Erro de conexão', 'error'); }
 }
@@ -1094,7 +1204,6 @@ async function editProject(pid) {
   if (!p) return;
   resetForm();
   editingProjectId = pid;
-  // Preenche campos de texto
   document.getElementById('fTitle').value  = p.title  || '';
   document.getElementById('fArtist').value = p.artist || '';
   document.getElementById('fAlbum').value  = p.album  || '';
@@ -1103,7 +1212,6 @@ async function editProject(pid) {
   if (p.rpm)    document.getElementById('oRpm').value    = p.rpm;
   if (p.preset) document.getElementById('oPreset').value = p.preset;
   document.getElementById('oFormat').value = (p.vertical === 'true' || p.vertical === true) ? 'vertical' : 'horizontal';
-  // Carregar arquivos como blobs para curImg / curAud / etc
   const files = p.files || {};
   if (files.image) {
     try {
@@ -1111,9 +1219,11 @@ async function editProject(pid) {
       const b = await r.blob();
       curImg = new File([b], files.image, {type: b.type});
       setImg(curImg);
+      _imgFromServer = true;  // veio do servidor — não re-enviar se não mudar
     } catch(e) {}
   }
   if (files.audio) {
+    // Não baixa o áudio — o servidor já o tem; apenas mostra o nome.
     const lbl = document.getElementById('audLabel');
     lbl.textContent = files.audio; lbl.style.color = 'var(--gold)';
   }
@@ -1122,6 +1232,7 @@ async function editProject(pid) {
       const r = await fetch(`/projects/${pid}/file/${files.disc_image}`);
       const b = await r.blob();
       curDisc = new File([b], files.disc_image, {type: b.type});
+      _discFromServer = true;  // veio do servidor — não re-enviar se não mudar
       const lbl = document.getElementById('discLabel');
       lbl.innerHTML = files.disc_image; lbl.style.color = 'var(--gold)';
     } catch(e) {}
@@ -1131,11 +1242,13 @@ async function editProject(pid) {
       const r = await fetch(`/projects/${pid}/file/${files.bg_image}`);
       const b = await r.blob();
       curBg = new File([b], files.bg_image, {type: b.type});
+      _bgFromServer = true;    // veio do servidor — não re-enviar se não mudar
       const lbl = document.getElementById('bgLabel');
       lbl.innerHTML = files.bg_image; lbl.style.color = 'var(--gold)';
     } catch(e) {}
   }
   schedulePreview();
+  updateEditBanner();
   toast('Projeto carregado para edição', 'info');
   window.scrollTo({top:0, behavior:'smooth'});
 }
